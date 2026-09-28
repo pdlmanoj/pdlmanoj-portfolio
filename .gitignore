@@ -1,0 +1,47 @@
+# Dependencies and build output. `dist/` is rebuilt by the deploy workflow on
+# every push, so it must never be committed.
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Caches
+.vite/
+.cache/
+.parcel-cache/
+.turbo/
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Secrets. There are none today; this keeps it that way. If you ever add one,
+# commit `*.example` files instead of the real thing.
+.env
+.env.*
+!.env.example
+
+# Editors and IDEs
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+.history/
+
+# Operating systems
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
