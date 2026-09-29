@@ -1,9 +1,9 @@
 {
-  "name": "kanxo-portfolio",
+  "name": "Manoj-Paudel-portfolio",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Static personal portfolio for Kanxo, Junior Backend Engineer.",
+  "description": "Static personal portfolio for Manoj Paudel, Junior Backend Engineer.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
