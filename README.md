@@ -1,8 +1,8 @@
 # Manoj Paudel — portfolio & blog
 
 Live site: **[pdlmanoj.com.np](https://pdlmanoj.com.np)** — a portfolio, projects, work history and a
-blog about backend systems. Static site (React + TypeScript + Vite), no server, deployed to GitHub
-Pages.
+blog about backend systems.
+Static site (React + TypeScript + Vite), no server, deployed to GitHub Pages.
 
 ## Run it locally
 
@@ -20,9 +20,8 @@ npm run dev
 
 ## Full documentation
 
-- **[DEPLOY.md](DEPLOY.md)** — the deploy runbook: commit, Pages setting, DNS, certificate.
 - **[AGENTS.md](AGENTS.md)** — how the site is built: routing, content model, SEO, verification.
 
 ## Deploying
 
-`git push` to `main`. GitHub Actions checks, builds and publishes. See [DEPLOY.md](DEPLOY.md).
+`git push` to `main`. GitHub Actions checks, builds and publishes.
