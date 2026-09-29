@@ -1,0 +1,81 @@
+# Deploys the portfolio to GitHub Pages on every push to `main`.
+#
+# One-time setup (once, in the repository on GitHub):
+#   Settings -> Pages -> Build and deployment -> Source: "GitHub Actions"
+#
+# After that, pushing to `main` is all it takes to publish a change.
+# `workflow_dispatch` below also lets you re-run the deploy from the Actions tab.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # Allows a manual re-run from the Actions tab.
+  workflow_dispatch:
+
+# Restrict write permissions: the deploy action only needs to upload the
+# artifact, not to write to the repository.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never run two deploys at once, and let a newer push supersede an older one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      # Formatting is a documented rule of the project, so it is a gate here
+      # too: catching a stray diff on a PR is cheaper than catching it after a
+      # merge. Run `npm run format` to fix what this reports.
+      - name: Check formatting
+        run: npx prettier --check .
+
+      # `npm run build` runs `tsc -b` then `vite build`. The result is a plain
+      # static site in `dist/`, with asset paths relative so it works from the
+      # repository subpath.
+      - name: Build
+        run: npm run build
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
