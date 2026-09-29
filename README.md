@@ -120,3 +120,16 @@ index.html              the static defaults for title, canonical, Open Graph, Tw
 `git push` to `main` is the whole release. GitHub Actions installs, checks formatting, type-checks,
 lints, builds, and publishes `dist/` to GitHub Pages. A red typecheck, lint or format check fails
 the deploy on purpose.
+
+One-time setup: **Settings → Pages → Build and deployment → Source: GitHub Actions**, and set
+**Custom domain** to the domain. For a custom domain, the apex needs GitHub Pages' address records,
+set to _DNS only_ so Pages can issue the certificate:
+
+```text
+A     @  185.199.108.153      AAAA  @  2606:50c0:8000::153
+A     @  185.199.109.153      AAAA  @  2606:50c0:8001::153
+A     @  185.199.110.153      AAAA  @  2606:50c0:8002::153
+A     @  185.199.111.153      AAAA  @  2606:50c0:8003::153
+```
+
+TLS is then automatic, and after that every release is `git push`.
