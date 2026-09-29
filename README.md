@@ -120,5 +120,3 @@ index.html              the static defaults for title, canonical, Open Graph, Tw
 `git push` to `main` is the whole release. GitHub Actions installs, checks formatting, type-checks,
 lints, builds, and publishes `dist/` to GitHub Pages. A red typecheck, lint or format check fails
 the deploy on purpose.
-
-
