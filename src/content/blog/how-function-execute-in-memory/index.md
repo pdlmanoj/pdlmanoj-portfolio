@@ -4,7 +4,7 @@ date: '2025-05-03'
 description: 'Ever wondered what actually happens under the hood when you run your function code in Python?'
 ---
 
-In this blog, I am going to walk you through, from the moment you call a function to when it finish its execution what actually happening under the hood. When I learned about this topic, I have made detailed notes to help myself understand this better, and now I’m excited to share my knowledge with you in this blog,
+In this blog, I am going to walk you from the moment you call a function to when it finish its execution what actually happening under the hood. When I learned about this topic, I have made detailed notes to help myself understand this better, and now I’m excited to share my knowledge with you in this blog,
 
 Let’s take an example of a function which returns whether a given number is **odd** or **even**.
 
@@ -84,8 +84,6 @@ At this point, the **check_num()** finished executing and **returns** **'Odd'** 
 
 ![function-memory-4](./function-memory-4.png)
 
----
-
 > ## Interview Questions
 
 ### 1. What's the lifespan of a function in memory?
@@ -95,8 +93,6 @@ At this point, the **check_num()** finished executing and **returns** **'Odd'** 
 ### 2. What about variables inside a function?
 
 **Answer:** Variables defined inside a function, like **num**, only exist during the function execution. Once the function execution finishes, these inside variables are automatically destroyed from memory.
-
----
 
 ## Step 4: Printing the Result
 
