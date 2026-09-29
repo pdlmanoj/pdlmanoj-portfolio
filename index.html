@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Manoj Paudel — Junior Backend Engineer</title>
+    <meta
+      name="description"
+      content="Backend engineer building reliable systems with Python, FastAPI, PostgreSQL, Redis and Docker. Notes on how backend systems actually work."
+    />
+    <meta name="author" content="Manoj Paudel" />
+
+    <!-- Canonical, Open Graph and Twitter. No domain is written here: every
+         absolute URL below is the site URL token, which the build replaces from
+         `url` in src/data/site.ts. That is the only place the domain lives, so
+         it cannot drift from itself, and changing it is one edit rather than
+         seven. Blog posts get their own copy of these tags written into
+         blog/<slug>/index.html at build time, because social networks do not
+         run JavaScript. -->
+    <link rel="canonical" href="%SITE_URL%/" />
+    <!-- The .ico is the fallback every browser understands; the SVG stays
+         sharp on hi-dpi screens. Browsers pick the last one they support.
+         Regenerate the .ico after editing the SVG:
+         rsvg-convert -w 256 -h 256 public/favicon.svg -o /tmp/favicon.png
+         magick /tmp/favicon.png -strip -define icon:auto-resize=16,32,48,64 public/favicon.ico -->
+    <link rel="icon" href="./favicon.ico" sizes="any" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <meta name="theme-color" content="#0d0d0d" />
+
+    <!-- Applies the saved theme (or the OS preference) before first paint, so
+         the page never flashes the wrong colours. Keep this tiny and inline. -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('theme');
+          var theme =
+            saved === 'light' || saved === 'dark'
+              ? saved
+              : window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light';
+          document.documentElement.dataset.theme = theme;
+        } catch (error) {
+          document.documentElement.dataset.theme = 'dark';
+        }
+      })();
+    </script>
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Manoj Paudel" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:title" content="Manoj Paudel — Junior Backend Engineer" />
+    <meta
+      property="og:description"
+      content="Backend engineer building reliable systems with Python, FastAPI, PostgreSQL, Redis and Docker. Notes on how backend systems actually work."
+    />
+    <meta property="og:url" content="%SITE_URL%/" />
+    <!-- A PNG, not an SVG: Twitter, Slack and WhatsApp ignore SVG cards.
+         Regenerate after editing src/content/media/og-source.svg:
+         rsvg-convert -w 1200 -h 630 src/content/media/og-source.svg -o public/og.png
+         magick public/og.png -strip public/og.png -->
+    <meta property="og:image" content="%SITE_URL%/og.png" />
+    <meta property="og:image:alt" content="Manoj Paudel — Junior Backend Engineer" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@pdlmanoj_" />
+    <meta name="twitter:title" content="Manoj Paudel — Junior Backend Engineer" />
+    <meta
+      name="twitter:description"
+      content="Backend engineer building reliable systems with Python, FastAPI, PostgreSQL, Redis and Docker. Notes on how backend systems actually work."
+    />
+    <meta name="twitter:image" content="%SITE_URL%/og.png" />
+    <meta name="twitter:image:alt" content="Manoj Paudel — Junior Backend Engineer" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Person",
+        "name": "Manoj Paudel",
+        "jobTitle": "Junior Backend Engineer",
+        "url": "%SITE_URL%/",
+        "image": "%SITE_URL%/og.png",
+        "description": "Backend engineer building reliable systems with Python, FastAPI, PostgreSQL, Redis and Docker. Writes about how backend systems actually work.",
+        "email": "mailto:mpsandip12@gmail.com",
+        "sameAs": ["https://github.com/pdlmanoj", "https://www.linkedin.com/in/pdlmanoj"],
+        "knowsAbout": [
+          "APIs",
+          "Databases",
+          "Networking",
+          "Concurrency",
+          "Caching",
+          "Messaging systems",
+          "Distributed systems",
+          "Infrastructure",
+          "System design"
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>
+      <div style="max-width: 40rem; margin: 4rem auto; padding: 0 1.5rem; font-family: sans-serif">
+        <h1>Manoj — Junior Backend Engineer</h1>
+        <p>
+          This portfolio is a small React application and needs JavaScript enabled to render. The
+          essentials:
+        </p>
+        <ul>
+          <li>
+            Backend engineer working with Python, FastAPI, PostgreSQL, Redis, Kafka and Docker.
+          </li>
+          <li>Projects: Digital Wallet API, Mock Payment Gateway</li>
+          <li>Code: github.com/pdlmanoj</li>
+          <li>Email: mpsandip12@gmail.com</li>
+        </ul>
+      </div>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
