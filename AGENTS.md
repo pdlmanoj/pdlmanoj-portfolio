@@ -62,7 +62,8 @@ public/                favicon.ico + favicon.svg, og.png, profile.jpeg,
                        site URL
 .github/workflows/deploy.yml  builds and publishes on every push to main
 README.md              the public front page: what the site is, how to run it
-                       locally, how to add content
+                       locally, what to edit to add content, and links to
+                       DEPLOY.md and this file for the rest
 DEPLOY.md              the runbook, for the author: commit -> Pages setting ->
                        DNS -> certificate -> verify, with a troubleshooting table
 AGENTS.md              this file: the map, the load-bearing rules, the state
@@ -350,8 +351,10 @@ The domain's own setup is not in the repo: the eight `A`/`AAAA` records that sen
 `pdlmanoj.com.np` to GitHub Pages, and the grey-cloud decision that keeps TLS
 simple, are spelled out in [DEPLOY.md](DEPLOY.md), which is the step-by-step
 runbook from "commit the source" to "the domain answers over HTTPS". Nothing in a
-build can fix a DNS record. The public `README.md` carries the short version of
-the same thing for anyone reading the repo on GitHub.
+build can fix a DNS record. The public `README.md` stays short and points at
+DEPLOY.md for the runbook and at this file for how the site is built, so a
+visitor on GitHub is one click from the detail without a wall of text in front
+of them.
 
 `dist/` and `node_modules/` are gitignored on purpose. Never commit a build.
 
