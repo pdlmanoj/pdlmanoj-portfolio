@@ -22,11 +22,32 @@ import path from 'node:path';
 interface PostPageData {
   slug: string;
   title: string;
-  description?: string;
   /** `YYYY-MM-DD`. */
   date?: string;
-  /** Site-root-relative preview image, e.g. `/og/my-post.png`. */
-  image: string;
+  /** `YYYY-MM-DD`, when the post has been revised since. Absent means never. */
+  updated?: string;
+  /** The post's own words for what it is about, shown on the archive and the post. */
+  tags: string[];
+  /**
+   * The post's opening paragraph, used as the meta description. Derived from the
+   * body rather than written in the frontmatter, so it cannot go stale.
+   */
+  summary?: string;
+  /**
+   * Site-root-relative preview image, e.g. `/blog/my-post/og.png`, or absent
+   * when the post's frontmatter names no `image`. Absent is a real state and not
+   * a gap to paper over: the page then carries no `og:image` at all and the
+   * network renders a text card from the post's own title.
+   */
+  image?: string;
+  /** Absolute path of the file `image` names, copied into the build. */
+  imageSource?: string;
+  /**
+   * The post's rendered body, with every asset URL already resolved. Written into
+   * the page inside `<noscript>`, which is what makes the article readable to a
+   * crawler that does not run JavaScript and to a reader who has it turned off.
+   */
+  html: string;
 }
 
 interface PostPagesOptions {
@@ -36,7 +57,7 @@ interface PostPagesOptions {
   siteUrl: string;
   posts: PostPageData[];
   /** Copy for the blog archive page at `/blog/`. */
-  blog: { description: string; image: string };
+  blog: { description: string };
   /** The data-driven listing pages, e.g. `/projects/` and `/experience/`. */
   pages?: ListingPageData[];
 }
@@ -49,8 +70,6 @@ export interface ListingPageData {
    */
   id: string;
   description: string;
-  /** Site-root-relative preview image. */
-  image: string;
   /** What a reader without JavaScript sees: the list on the page. */
   items: { text: string; href?: string }[];
 }
@@ -111,7 +130,6 @@ export function writePostPages({
 
   const siteName = metaContent(indexHtml, 'property', 'og:site_name') ?? siteUrl;
   const author = metaContent(indexHtml, 'name', 'author') ?? siteName;
-  const homeDescription = metaContent(indexHtml, 'name', 'description') ?? '';
   // `siteUrl` already carries the base path, e.g. https://user.github.io/repo
 
   // Stale pages from deleted posts would otherwise linger in the build.
@@ -119,14 +137,13 @@ export function writePostPages({
   fs.rmSync(blogDir, { recursive: true, force: true });
 
   for (const post of posts) {
-    const description = post.description || homeDescription;
     const url = `${siteUrl}/blog/${post.slug}/`;
-    const imageUrl = `${siteUrl}${post.image}`;
+    const imageUrl = post.image ? `${siteUrl}${post.image}` : undefined;
 
     const html = renderPage(indexHtml, {
       pageTitle: `${post.title} — ${author}`,
       title: post.title,
-      description,
+      description: post.summary,
       url,
       imageUrl,
       imageAlt: post.title,
@@ -136,18 +153,34 @@ export function writePostPages({
       depth: '../..',
       noscript: [
         `<h1>${escapeHtml(post.title)}</h1>`,
-        post.date ? `<p><small>${escapeHtml(post.date)}</small></p>` : '',
-        `<p>${escapeHtml(description)}</p>`,
-        NO_JS_NOTE,
+        `<p><small>Published ${escapeHtml(post.date ?? '')}</small></p>`,
+        post.updated ? `<p><small>Modified ${escapeHtml(post.updated)}</small></p>` : '',
+        /**
+         * The whole article, and the reason this page is worth having at all: the
+         * app's own markup only exists once JavaScript runs, so without this the
+         * words of the post are absent from the served HTML entirely.
+         *
+         * `prose` because the body arrives as bare `<p>`, `<h2>` and `<figure>`
+         * with no wrapper to hang the article styles on, and a no-JS reader
+         * should get the same measure and code blocks as everyone else.
+         */
+        `<div class="prose">${post.html}</div>`,
+        /**
+         * The internal link graph, in the served HTML rather than only in the DOM
+         * the app builds after it boots: a crawler that does not run JavaScript
+         * can still reach the posts around this one.
+         */
+        relatedFallback(post, posts),
       ],
       jsonLd: postJsonLd({
         title: post.title,
-        description,
+        description: post.summary,
         url,
         imageUrl,
         author,
         siteName,
         date: post.date,
+        updated: post.updated,
       }),
     });
 
@@ -165,8 +198,6 @@ export function writePostPages({
       title: `Blog — ${author}`,
       description: blog.description,
       url: blogUrl,
-      imageUrl: `${siteUrl}${blog.image}`,
-      imageAlt: `Blog — ${author}`,
       type: 'website',
       // `blog/` is one level down from the site root.
       depth: '..',
@@ -190,8 +221,6 @@ export function writePostPages({
         title,
         description: page.description,
         url,
-        imageUrl: `${siteUrl}${page.image}`,
-        imageAlt: title,
         type: 'website',
         // `/projects/` is one level down from the site root, same as `blog/`.
         depth: '..',
@@ -234,6 +263,29 @@ function writeNotFoundPage({
     );
 
   fs.writeFileSync(path.join(outDir, '404.html'), html);
+}
+
+/**
+ * Copies each post's share card into the build as `dist/blog/<slug>/og.png`.
+ *
+ * The author's file only exists in the post folder in `src/content`, and a card
+ * has to be a real file at a URL a network can fetch, so the build puts one
+ * beside the page it belongs to. Two things about that are deliberate:
+ *
+ *  - It runs after `writePostPages`, which clears `dist/blog` before it writes
+ *    the post directories, so a card copied earlier would be deleted.
+ *  - The name is fixed rather than hashed. Every other image in a post goes
+ *    through Vite's asset pipeline and lands under `assets/` with a hash, which
+ *    is right for content a page references and wrong for a share image: a
+ *    hashed name changes on every deploy, so every network that had cached the
+ *    old URL has to fetch it again for no reason, and the URL in the metadata
+ *    is the one a person reads when a preview looks wrong.
+ */
+export function writePreviewImages({ outDir, posts }: PostPagesOptions): void {
+  for (const post of posts) {
+    if (!post.image || !post.imageSource) continue;
+    fs.copyFileSync(post.imageSource, path.join(outDir, post.image.replace(/^\//, '')));
+  }
 }
 
 /**
@@ -337,11 +389,22 @@ interface PageInput {
   pageTitle: string;
   /** `og:title` and `twitter:title`, without the site name. */
   title: string;
-  description: string;
+  /**
+   * Meta description, or absent. Posts have none: there is no `description` in
+   * a post's frontmatter, and the site-wide sentence in `index.html` is about
+   * the author rather than the post, so repeating it on every post is a worse
+   * preview than letting a network use the first lines of the post itself.
+   */
+  description?: string;
   /** Absolute canonical URL. */
   url: string;
-  imageUrl: string;
-  imageAlt: string;
+  /**
+   * Absolute preview image URL, or absent. Absent means the page has no card of
+   * its own and none is written: a share link then shows the title and the
+   * description, which beats a picture that only says who wrote it.
+   */
+  imageUrl?: string;
+  imageAlt?: string;
   type: 'article' | 'website';
   publishedTime?: string;
   /** Relative prefix that moves assets up out of this page's directory. */
@@ -377,24 +440,41 @@ function renderPage(template: string, page: PageInput): string {
     .replace(/(href|src)="\.\//g, `$1="${page.depth}/`);
 
   const tags = [
-    `<meta name="description" content="${escapeHtml(page.description)}" />`,
+    page.description ? `<meta name="description" content="${escapeHtml(page.description)}" />` : '',
     `<link rel="canonical" href="${escapeHtml(page.url)}" />`,
     `<meta property="og:type" content="${page.type}" />`,
     `<meta property="og:title" content="${escapeHtml(page.title)}" />`,
-    `<meta property="og:description" content="${escapeHtml(page.description)}" />`,
+    page.description
+      ? `<meta property="og:description" content="${escapeHtml(page.description)}" />`
+      : '',
     `<meta property="og:url" content="${escapeHtml(page.url)}" />`,
-    `<meta property="og:image" content="${escapeHtml(page.imageUrl)}" />`,
-    `<meta property="og:image:alt" content="${escapeHtml(page.imageAlt)}" />`,
-    `<meta property="og:image:width" content="1200" />`,
-    `<meta property="og:image:height" content="630" />`,
+    /**
+     * No `og:image:width` / `og:image:height` alongside the URL. They were 1200x630
+     * because every card was the same generated file; a card is now whatever the
+     * author exported, and declaring dimensions that may not be the image's own is
+     * a false statement in the markup. Networks measure the file they fetch.
+     */
+    page.imageUrl ? `<meta property="og:image" content="${escapeHtml(page.imageUrl)}" />` : '',
+    page.imageUrl && page.imageAlt
+      ? `<meta property="og:image:alt" content="${escapeHtml(page.imageAlt)}" />`
+      : '',
     page.publishedTime
       ? `<meta property="article:published_time" content="${page.publishedTime}" />`
       : '',
-    `<meta name="twitter:card" content="summary_large_image" />`,
+    /**
+     * `summary_large_image` asks for a big card, which is only right when there is
+     * an image; on a page without one it makes networks fetch a thumbnail of
+     * nothing. `summary` is the plain text card.
+     */
+    `<meta name="twitter:card" content="${page.imageUrl ? 'summary_large_image' : 'summary'}" />`,
     `<meta name="twitter:title" content="${escapeHtml(page.title)}" />`,
-    `<meta name="twitter:description" content="${escapeHtml(page.description)}" />`,
-    `<meta name="twitter:image" content="${escapeHtml(page.imageUrl)}" />`,
-    `<meta name="twitter:image:alt" content="${escapeHtml(page.imageAlt)}" />`,
+    page.description
+      ? `<meta name="twitter:description" content="${escapeHtml(page.description)}" />`
+      : '',
+    page.imageUrl ? `<meta name="twitter:image" content="${escapeHtml(page.imageUrl)}" />` : '',
+    page.imageUrl && page.imageAlt
+      ? `<meta name="twitter:image:alt" content="${escapeHtml(page.imageAlt)}" />`
+      : '',
     page.jsonLd,
   ].filter(Boolean);
 
@@ -409,7 +489,15 @@ function renderPage(template: string, page: PageInput): string {
     ...page.noscript.filter(Boolean).map((line) => `        ${line}`),
     '      </div>',
     '    </noscript>',
-  ].join('\n');
+    /**
+     * The same depth rewrite the document got above, applied here because the
+     * fallback is spliced in after it: a post's body carries its own `./assets/…`
+     * URLs, and without this they would resolve against `blog/<slug>/` and every
+     * image in the crawler copy would be broken.
+     */
+  ]
+    .join('\n')
+    .replace(/(href|src)="\.\//g, `$1="${page.depth}/`);
 
   return html.replace(/ {4}<noscript>[\s\S]*? {4}<\/noscript>/, fallback);
 }
@@ -439,12 +527,15 @@ function blogFallback(posts: PostPageData[]): (string | false)[] {
   if (posts.length === 0) return ['<h1>Blog</h1>', NO_JS_NOTE];
 
   const items = posts
-    .map(
-      (post) =>
-        `        <li><a href="${post.slug}/">${escapeHtml(post.title)}</a>${
-          post.date ? ` <small>${escapeHtml(post.date)}</small>` : ''
-        }</li>`,
-    )
+    .map((post) => {
+      const tags = post.tags.length
+        ? ` <small>${post.tags.map(escapeHtml).join(', ')}</small>`
+        : '';
+      return (
+        `        <li><a href="${post.slug}/">${escapeHtml(post.title)}</a>` +
+        `${post.date ? ` <small>${escapeHtml(post.date)}</small>` : ''}${tags}</li>`
+      );
+    })
     .join('\n');
 
   return ['<h1>Blog</h1>', `<ul>\n${items}\n      </ul>`, NO_JS_NOTE];
@@ -465,28 +556,82 @@ function postJsonLd({
   author,
   siteName,
   date,
+  updated,
 }: {
   title: string;
-  description: string;
+  description?: string;
   url: string;
-  imageUrl: string;
+  imageUrl?: string;
   author: string;
   siteName: string;
   date?: string;
+  updated?: string;
 }): string {
   return `<script type="application/ld+json">\n${indentJson({
     '@context': 'https://schema.org',
     '@type': 'BlogPosting',
     headline: title,
-    description,
     url,
-    image: imageUrl,
     inLanguage: 'en',
+    ...(description ? { description } : {}),
     author: { '@type': 'Person', name: author },
     publisher: { '@type': 'Person', name: siteName },
     mainEntityOfPage: { '@type': 'WebPage', '@id': url },
+    // A post with no card has no image to name, and an `image` of `undefined`
+    // would serialize away on its own, dropping the key instead.
+    ...(imageUrl ? { image: imageUrl } : {}),
     ...(date ? { datePublished: date } : {}),
+    // Only when the author says the post was revised. An absent `dateModified`
+    // is the claim that the original is current, which is the honest default.
+    ...(updated ? { dateModified: updated } : {}),
   })}\n    </script>`;
+}
+
+/**
+ * Posts sharing a tag with this one, most overlapping first.
+ *
+ * The same rule `relatedPosts` applies at runtime in `src/lib/blog.ts`, written
+ * out a second time because the build cannot import app code and an empty read
+ * fails the build. The two must stay in step: this one is what puts the links in
+ * the served HTML, and that one is what the app renders after it boots. Keep them
+ * together, and change both in the same commit.
+ */
+function relatedTo(post: PostPageData, posts: PostPageData[], limit = 3): PostPageData[] {
+  return (
+    posts
+      .filter((entry) => entry.slug !== post.slug)
+      .map((entry) => ({
+        post: entry,
+        shared: entry.tags.filter((tag) => post.tags.includes(tag)).length,
+      }))
+      .filter((entry) => entry.shared > 0)
+      /** `posts` is slug-sorted, which is stable, so equal overlap keeps that order. */
+      .sort((a, b) => b.shared - a.shared)
+      .slice(0, limit)
+      .map((entry) => entry.post)
+  );
+}
+
+/** The related-post links a no-JS reader and a crawler both get. */
+function relatedFallback(post: PostPageData, posts: PostPageData[]): string {
+  const related = relatedTo(post, posts);
+  if (related.length === 0) return '';
+
+  const items = related
+    .map((entry) => {
+      /**
+       * `../<slug>/` rather than `./<slug>/`: a sibling post is one level up from
+       * `blog/<slug>/`, and `renderPage` rewrites a leading `./` to the page's own
+       * depth, which would send this to the site root instead.
+       */
+      const line = `          <li><a href="../${escapeHtml(entry.slug)}/">${escapeHtml(entry.title)}</a></li>`;
+      return entry.date
+        ? line.replace('</li>', ` <small>${escapeHtml(entry.date)}</small></li>`)
+        : line;
+    })
+    .join('\n');
+
+  return `<h2>Related</h2>\n        <ul>\n${items}\n        </ul>`;
 }
 
 function blogJsonLd({
@@ -512,6 +657,7 @@ function blogJsonLd({
       '@type': 'BlogPosting',
       headline: post.title,
       url: `${url}${post.slug}/`,
+      ...(post.summary ? { description: post.summary } : {}),
       ...(post.date ? { datePublished: post.date } : {}),
     })),
   })}\n    </script>`;

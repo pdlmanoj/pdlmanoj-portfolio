@@ -1,7 +1,8 @@
 ---
 title: 'How functions are executed in memory?'
-date: '2025-05-03'
-description: 'Ever wondered what actually happens under the hood when you run your function code in Python?'
+date: '2026-05-03'
+tags: ['python', 'memory', 'internals']
+image: './cover.png'
 ---
 
 In this blog, I am going to walk you from the moment you call a function to when it finish its execution what actually happening under the hood. When I learned about this topic, I have made detailed notes to help myself understand this better, and now I’m excited to share my knowledge with you in this blog,
@@ -13,10 +14,11 @@ def check_num(num):
     """This function returns,
     whether a given number is odd or even"""
 
-    if num %2 == 0:
-        return 'Even'
+    if num % 2 == 0:
+        return "Even"
     else:
-        return 'Odd'
+        return "Odd"
+
 
 print(check_num(7))
 ```
@@ -70,10 +72,10 @@ Suppose your computer **RAM** as a **city** then,
 Once the **check_num()** function is called, now python begins to executing inside code line by line inside the new created separate stack frame.
 
 ```python
-    if 7 %2 == 0:
-        return 'Even'
-    else:
-        return 'Odd'
+if 7 % 2 == 0:
+    return "Even"
+else:
+    return "Odd"
 ```
 
 Since, **7% 2** not equal **to 0**, the condition becomes **false**. So python, skips to **else** block and **return** **'odd'** back to main program.

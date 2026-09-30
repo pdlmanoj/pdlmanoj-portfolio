@@ -37,10 +37,10 @@ build/markdown.ts      Vite plugin: markdown -> post modules, virtual index, ima
                        HMR, the %SITE_URL% substitution, and the static writers
 build/post-pages.ts    writes dist/blog/<slug>/index.html, dist/blog/index.html,
                        dist/projects/index.html, dist/experience/index.html,
-                       sitemap.xml, robots.txt, CNAME and 404.html
-src/content/blog/      one folder per post: <slug>/index.md plus its images;
-                       the folder name is the URL
-src/content/media/     source art that is not published: the og card's SVG
+                       each post's share card, sitemap.xml, robots.txt, CNAME
+                       and 404.html
+src/content/blog/      one folder per post: <slug>/index.md plus its images
+                       and its share card; the folder name is the URL
 src/data/              profile, projects, experience, site settings
 src/lib/assets.ts      site-root URLs: files in public/ (assetUrl) and the site's
                        own pages (pageUrl)
@@ -56,10 +56,9 @@ src/components/layout/SectionHeader.tsx  heading + intro for a block inside the
 src/components/ui/Card.tsx  the card the homepage uses to open a page
 src/pages/             Home, BlogPage, BlogPost, ProjectsPage, ExperiencePage,
                        NotFound
-public/                favicon.ico + favicon.svg, og.png, profile.jpeg,
-                       .nojekyll. robots.txt, sitemap.xml and CNAME are NOT
-                       here: they are generated, because each one needs the
-                       site URL
+public/                favicon.ico + favicon.svg, profile.jpeg, .nojekyll.
+                       robots.txt, sitemap.xml and CNAME are NOT here: they
+                       are generated, because each one needs the site URL
 .github/workflows/deploy.yml  builds and publishes on every push to main
 README.md              the public front page: what the site is, how to run it
                        locally, what to edit to add content, and links to
@@ -119,12 +118,22 @@ they are in bookmarks and in the search index, and a 404 would break the promise
 ## Content model
 
 - **Post**: `src/content/blog/<slug>/index.md`, frontmatter `title` (required),
-  `date`, `description`. A post is a folder so its images sit beside the markdown
+  `date`, `description`, `image`. A post is a folder so its images sit beside the markdown
   that references them, and the post moves and deletes as one unit. The build
   fails loudly on a missing title, and also on any `.md` that is not a post
   folder's `index.md`, because a stray file is never imported and would
   otherwise be a post that silently never appears. The summary comes from
   frontmatter, not from the body.
+- **A post's share image** is `image: ./cover.png` in the same frontmatter: a PNG
+  or JPEG beside the markdown, published to `/blog/<slug>/og.png`. It is
+  optional, and a post without one has no `og:image` at all rather than a default
+  — a text card carrying the post's title beats a picture that only says who
+  wrote it. There is no site-wide card, and none in `index.html`: that file is
+  inherited by every generated page, so a default there would give every post
+  that has a real card two of them. The build refuses an SVG, a missing file and
+  a name with no extension, because all three preview as a blank card and only
+  the first is obvious. `og:image:width`/`height` are deliberately absent: the card
+  is the author's file, so its real dimensions are not known at build time.
 - **Profile** (`src/data/profile.ts`): the hero is the intro _and_ the about text,
   so there is no separate About section. `about[0]` is the greeting and becomes
   the page `h1` — the only `h1` on the homepage — which is why it has to keep the
@@ -233,7 +242,10 @@ comes from `pageDescriptions` in `src/lib/seo.ts` and their items from
 as text. App code is not importable from the build, and an empty read fails the
 build, so a page can never quietly ship blank.
 
-Preview images: `public/og/<slug>.png` if it exists, otherwise `public/og.png`.
+Share images: `writePreviewImages` copies each post's card to
+`dist/blog/<slug>/og.png`, beside the page it belongs to, after `writePostPages`
+clears `dist/blog` first. Fixed name, no hash: a hashed card URL changes on
+every deploy, so every network that cached the old one refetches for nothing.
 Keep the PNG. Twitter, Slack and WhatsApp ignore SVG cards.
 
 ## SEO invariants
@@ -241,7 +253,11 @@ Keep the PNG. Twitter, Slack and WhatsApp ignore SVG cards.
 Already handled, and worth keeping:
 
 - one `<h1>` per page, real `<time dateTime>` on every date
-- static per-post and per-listing metadata, canonical URLs, `og:image` at 1200x630
+- static per-post and per-listing metadata and canonical URLs; an `og:image` only
+  on the posts whose frontmatter names one, and no width/height claims, because
+  the card is the author's file and its size is not known at build time
+- `setPageMeta` removes the image tags rather than blanking them, so navigating
+  from a post with a card to a page without one cannot leave the card behind
 - `BlogPosting`, `Blog` and `CollectionPage` JSON-LD with `inLanguage`; `Person`
   JSON-LD on the homepage
 - lazy, async images; self-hosted fonts; the 404 asks robots not to index it
@@ -275,39 +291,53 @@ There is no test framework in `package.json`. The checks are Playwright-style CD
 scripts that live **outside the repo**, in `/tmp/opencode`, and they are not
 committed. If they are missing, `npm run build` plus a manual pass is the floor.
 
-Current state: of the eight CDP suites below, only unrelated ones
-(`verify-cards`, `verify-home`, `verify-type`, `verify-tagline`,
-`verify-mobile-nav`, `verify-nav-widths`) are on this machine. `verify.cjs`,
+Current state, re-measured 2026-09-30: `/tmp/opencode` holds **only**
+`verify-share-cards.mjs`. Every other script this file names — `verify.cjs`,
 `verify-theme.cjs`, `verify-crawler.cjs`, `verify-blog.cjs`, `verify-nav.cjs`,
-`verify-blog-page.cjs`, `verify-dev.cjs`, `verify-cleanup.cjs` and
-`gh-pages-server.py` are **absent** — the expected counts below are from when they
-last ran and are a target, not a current result. Do not report them as passing
-without re-running them.
+`verify-blog-page.cjs`, `verify-dev.cjs`, `verify-cleanup.cjs`,
+`verify-domain.mjs` and `gh-pages-server.py` — is **absent** from this machine,
+including the two (`verify-home`, `verify-type`, …) that an earlier revision of
+this file described as present. The expected counts below are from when they last
+ran: a target, not a current result. Do not report them as passing without
+re-running them.
 
-| Script                 | Covers                                                        | Expected |
-| ---------------------- | ------------------------------------------------------------- | -------- |
-| `verify.cjs`           | rendered homepage, section order, content from data files     | 49/49    |
-| `verify-theme.cjs`     | dark/light, no flash, contrast                                | 20/20    |
-| `verify-crawler.cjs`   | built HTML: metadata, JSON-LD, sitemap, assets, 404, indexing | 108/108  |
-| `verify-blog.cjs`      | post reader, code blocks, copy, prev/next, 404s               | 33/33    |
-| `verify-nav.cjs`       | every link and route, from every depth                        | 18/18    |
-| `verify-blog-page.cjs` | the `/blog/` archive                                          | 21/21    |
-| `verify-dev.cjs`       | live edits: add, edit, delete, missing title                  | 8/8      |
-| `verify-cleanup.cjs`   | cleanup pass: canonicals, og:site_name, headings, theme       | 48/48    |
+| Script                   | Covers                                                                   | Expected |
+| ------------------------ | ------------------------------------------------------------------------ | -------- |
+| `verify.cjs`             | rendered homepage, section order, content from data files                | 49/49    |
+| `verify-theme.cjs`       | dark/light, no flash, contrast                                           | 20/20    |
+| `verify-crawler.cjs`     | built HTML: metadata, JSON-LD, sitemap, assets, 404, indexing            | 108/108  |
+| `verify-blog.cjs`        | post reader, code blocks, copy, prev/next, 404s                          | 33/33    |
+| `verify-nav.cjs`         | every link and route, from every depth                                   | 18/18    |
+| `verify-blog-page.cjs`   | the `/blog/` archive                                                     | 21/21    |
+| `verify-dev.cjs`         | live edits: add, edit, delete, missing title                             | 8/8      |
+| `verify-cleanup.cjs`     | cleanup pass: canonicals, og:site_name, headings, theme                  | 48/48    |
+| `verify-domain.mjs`      | CNAME, sitemap, canonicals, JSON-LD, 404 — no browser needed             | 115/115  |
+| `verify-share-cards.mjs` | a post's share card, in the static HTML and after client-side navigation | 15/15    |
 
-`verify-domain.mjs` is the one that exists and covers the custom domain: `CNAME`,
-the `Sitemap:` line, every sitemap `<loc>` resolving to a real file, one
-canonical per page matching its `og:url`, `og:image`/`twitter:image` on the
-domain, JSON-LD `url`/`image`/`@id`, no unsubstituted `%SITE_URL%`, no
-`github.io` in metadata, and the 404's `noindex` and root-absolute assets. It
-needs only `npm run build` first — no browser, no server.
+`verify-share-cards.mjs` is the one that is here. It builds, serves `dist/` on
+:4180 with `python3 -m http.server`, drives headless chromium over raw CDP, and
+checks that a post naming a card gets `og:image` and `summary_large_image` in its
+static page and again after the app boots, that a post without one has neither,
+and that navigating from a post with a card to one without takes the tags back
+out. It creates a `zz-card-test` fixture post with a generated PNG and deletes it
+again.
+
+`verify-domain.mjs` covers the custom domain: `CNAME`, the `Sitemap:` line, every
+sitemap `<loc>` resolving to a real file, one canonical per page matching its
+`og:url`, JSON-LD `url`/`image`/`@id`, no unsubstituted `%SITE_URL%`, no
+`github.io` in metadata, and the 404's `noindex` and root-absolute assets. Note
+that its `og:image`/`twitter:image` checks have to be rewritten: no page ships
+an image any more unless a post names one, and a test that requires one on every
+page now fails by design.
 
 ```bash
 npm run build
+node /tmp/opencode/verify-share-cards.mjs     # 15/15, needs chromium
+
+# the rest, when they are back:
+npm run build
 node /tmp/opencode/verify-domain.mjs          # 115/115, no server needed
 
-# the CDP suites, when they are back:
-npm run build
 rm -rf /tmp/opencode/ghpages/portfolio-site
 mkdir -p /tmp/opencode/ghpages/portfolio-site && cp -r dist/* /tmp/opencode/ghpages/portfolio-site/
 cd /tmp/opencode && python3 gh-pages-server.py &   # serves the copy on :4180
@@ -380,7 +410,11 @@ items are all "not done yet" and each one is a prerequisite for the next.
   Pages will not serve it, so it needs deleting or a Cloudflare redirect rule.
 - **Content**: one post (`how-function-execute-in-memory`, dated 2025-05-03), two
   projects, one role. The `site.url` work is done — apex, no trailing slash, and
-  `CNAME` generated from it.
+  `CNAME` generated from it. That post names its share card (`image: ./cover.png`,
+  a 1200x630 crop of `function-memory-1.png`), and `public/og.png` and
+  `src/content/media/og-source.svg` — the old site-wide card — are deleted, along
+  with the `src/content/media/` folder that only held its source. A new post with
+  no `image` in its frontmatter previews as a text card.
 
 ## Ground rules
 

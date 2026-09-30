@@ -1,5 +1,6 @@
 import { formatDate, postHref, type BlogHrefFrom, type BlogPostSummary } from '../../lib/blog';
 import { Reveal } from '../ui/Reveal';
+import { PostTags } from './PostTags';
 
 /**
  * The post list, shared by the homepage preview and the blog index page. The only
@@ -47,8 +48,10 @@ function PostRow({ post, from }: { post: BlogPostSummary; from: BlogHrefFrom }) 
         </a>
       </h3>
 
-      {post.description ? (
-        <p className="mt-3 text-base leading-relaxed text-muted">{post.description}</p>
+      {post.tags.length > 0 ? (
+        <div className="mt-3">
+          <PostTags tags={post.tags} />
+        </div>
       ) : null}
 
       <p className="mt-3 font-mono text-sm text-muted transition-colors group-hover:text-accent">

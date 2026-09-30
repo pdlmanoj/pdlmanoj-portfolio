@@ -13,7 +13,9 @@ npm run dev
 
 ## Add something
 
-- **A post** — a folder `src/content/blog/<slug>/index.md`. The folder name is the URL.
+- **A post** — a folder `src/content/blog/<slug>/index.md`. The folder name is the URL. Add
+  `image: ./cover.png` to its frontmatter and that picture (a PNG or JPEG, beside the markdown)
+  is what the post previews as when the link is shared.
 - **A project** — an object in `src/data/projects.ts`.
 - **A job** — an object in `src/data/experience.ts`.
 - **Your name, links, intro** — `src/data/profile.ts`.

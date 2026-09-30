@@ -56,24 +56,23 @@
       content="Backend engineer building reliable systems with Python, FastAPI, PostgreSQL, Redis and Docker. Notes on how backend systems actually work."
     />
     <meta property="og:url" content="%SITE_URL%/" />
-    <!-- A PNG, not an SVG: Twitter, Slack and WhatsApp ignore SVG cards.
-         Regenerate after editing src/content/media/og-source.svg:
-         rsvg-convert -w 1200 -h 630 src/content/media/og-source.svg -o public/og.png
-         magick public/og.png -strip public/og.png -->
-    <meta property="og:image" content="%SITE_URL%/og.png" />
-    <meta property="og:image:alt" content="Manoj Paudel — Junior Backend Engineer" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
 
-    <meta name="twitter:card" content="summary_large_image" />
+    <!-- No preview image on this page, and that is the whole rule: a page's
+         image is the picture its own content names. A post names one in its
+         frontmatter (`image: ./cover.png`), and build/post-pages.ts copies that
+         file next to the post's page and writes the tags there. The homepage,
+         /blog/, /projects/ and /experience/ have no picture to name, so they
+         carry no image tags and a shared link shows its title and description.
+         Do not add a default here: every generated page inherits this file, so
+         the ones that have a real card would ship two. `summary` is the plain
+         text card that matches having no image. -->
+    <meta name="twitter:card" content="summary" />
     <meta name="twitter:site" content="@pdlmanoj_" />
     <meta name="twitter:title" content="Manoj Paudel — Junior Backend Engineer" />
     <meta
       name="twitter:description"
       content="Backend engineer building reliable systems with Python, FastAPI, PostgreSQL, Redis and Docker. Notes on how backend systems actually work."
     />
-    <meta name="twitter:image" content="%SITE_URL%/og.png" />
-    <meta name="twitter:image:alt" content="Manoj Paudel — Junior Backend Engineer" />
 
     <script type="application/ld+json">
       {
@@ -82,7 +81,6 @@
         "name": "Manoj Paudel",
         "jobTitle": "Junior Backend Engineer",
         "url": "%SITE_URL%/",
-        "image": "%SITE_URL%/og.png",
         "description": "Backend engineer building reliable systems with Python, FastAPI, PostgreSQL, Redis and Docker. Writes about how backend systems actually work.",
         "email": "mailto:mpsandip12@gmail.com",
         "sameAs": ["https://github.com/pdlmanoj", "https://www.linkedin.com/in/pdlmanoj"],

@@ -22,20 +22,48 @@ export interface BlogPostSummary {
   title: string;
   /** `YYYY-MM-DD`, straight from the frontmatter. */
   date?: string;
-  description?: string;
+  /** `YYYY-MM-DD` of the last revision, when the post names one. */
+  updated?: string;
+  /** What the post is about, e.g. `['python', 'memory']`. Never empty-but-undefined. */
+  tags: string[];
+  /** The post's opening paragraph, as a description length. See `BlogFrontmatter`. */
+  summary?: string;
   readingTime: number;
 }
 
 export interface BlogFrontmatter {
   title: string;
   date?: string;
-  description?: string;
   /**
-   * Resolved by the build: the post's own `public/og/<slug>.png` if it exists,
-   * otherwise the site-wide card. Set here so the page can tag the link it was
-   * opened from without guessing at the file system at runtime.
+   * The post's own words for what it is about. Shown on the archive row and
+   * under the post's title, and nothing more: they are labels, not links, and
+   * there is no tag archive to filter by.
    */
-  image: string;
+  tags: string[];
+  /**
+   * The post's own share card, from `image:` in the frontmatter, resolved by the
+   * build to the URL it published the file at — `/blog/<slug>/og.png`. Absent
+   * when the post names no image, and then the page carries no `og:image` at
+   * all, so a shared link shows the post's title rather than a picture that
+   * belongs to the site. Set here so the page can tag the link it was opened
+   * from without guessing at the file system at runtime.
+   */
+  image?: string;
+  /**
+   * `updated:` from the frontmatter: when the post was last revised. Absent means
+   * it has never been, and the byline then says nothing about modification rather
+   * than inventing a date. The build refuses an `updated` earlier than `date`.
+   */
+  updated?: string;
+  /**
+   * The post's opening paragraph, cut to a length a search result can show.
+   *
+   * Derived by the build from the body rather than written by hand, so it cannot
+   * disagree with the post. This is what the page puts in the description and
+   * Open Graph tags after the app boots — the static HTML already has the same
+   * text, and this is how the live tab agrees with it.
+   */
+  summary?: string;
 }
 
 /** What one markdown file compiles to. */
@@ -64,7 +92,9 @@ export async function loadPost(slug: string): Promise<BlogPost | undefined> {
     slug: postSlug,
     title: frontmatter.title,
     date: frontmatter.date,
-    description: frontmatter.description,
+    updated: frontmatter.updated,
+    tags: frontmatter.tags,
+    summary: frontmatter.summary,
     readingTime: summary?.readingTime ?? 1,
     frontmatter,
     html,
@@ -112,6 +142,40 @@ export function neighbouringPosts(slug: string): {
     newer: posts[index - 1],
     older: posts[index + 1],
   };
+}
+
+/**
+ * Posts that share a tag with this one, most overlapping first.
+ *
+ * This is the site's internal link graph, and it is the one ranking lever a
+ * blog controls outright: a post linked from other posts is a post a crawler
+ * can reach and a reader can keep reading. Tags are what make the link mean
+ * something — without them every post can only link to the ones before and after
+ * it, which is a chain, not a cluster.
+ *
+ * The tags stay inert labels on the page; the links they produce are ordinary
+ * post links, so nothing here needs a tag archive or a filter to exist.
+ */
+export function relatedPosts(slug: string, limit = 3): BlogPostSummary[] {
+  const post = posts.find((entry) => entry.slug === slug);
+  if (!post) return [];
+
+  return (
+    posts
+      .filter((entry) => entry.slug !== slug)
+      .map((entry) => ({
+        post: entry,
+        shared: entry.tags.filter((tag) => post.tags.includes(tag)).length,
+      }))
+      .filter((entry) => entry.shared > 0)
+      /**
+       * `posts` is newest first, so a stable sort on the overlap count alone
+       * leaves equally related posts in date order.
+       */
+      .sort((a, b) => b.shared - a.shared)
+      .slice(0, limit)
+      .map((entry) => entry.post)
+  );
 }
 
 /**

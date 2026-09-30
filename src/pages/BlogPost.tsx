@@ -2,12 +2,15 @@ import { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { setPageMeta } from '../lib/seo';
 import { profile } from '../data/profile';
+import { assetUrl } from '../lib/assets';
+import { PostTags } from '../components/blog/PostTags';
 import {
   blogHref,
   formatDate,
   loadPost,
   neighbouringPosts,
   postHref,
+  relatedPosts,
   type BlogPost,
   type BlogPostSummary,
 } from '../lib/blog';
@@ -42,11 +45,14 @@ export function BlogPostPage({ slug }: { slug: string }) {
       // to be the post's real path, not the hash.
       setPageMeta({
         title: `${loaded.frontmatter.title} — ${profile.name}`,
-        description: loaded.frontmatter.description ?? profile.tagline,
         path: `/blog/${loaded.slug}/`,
         type: 'article',
         publishedTime: loaded.frontmatter.date,
         image: loaded.frontmatter.image,
+        // The build's derived first paragraph, so the live tab carries the same
+        // description the static page already has. `setPageMeta` takes the tag out
+        // when there is none, rather than leaving the homepage's sentence behind.
+        description: loaded.frontmatter.summary,
       });
     });
 
@@ -81,6 +87,7 @@ export function BlogPostPage({ slug }: { slug: string }) {
   }
 
   const { newer, older } = neighbouringPosts(post.slug);
+  const related = relatedPosts(post.slug);
 
   return (
     <article className="left-gutter mx-auto w-full max-w-3xl px-5 pt-12 pb-24 sm:px-8 sm:pt-16">
@@ -96,18 +103,23 @@ export function BlogPostPage({ slug }: { slug: string }) {
       </a>
 
       <header className="mt-8 border-b border-border pb-8">
-        <p className="label-mono text-muted">
-          <time dateTime={post.frontmatter.date}>{formatDate(post.frontmatter.date)}</time>
-          <span className="px-2 text-border-strong">/</span>
-          {post.readingTime} min read
-        </p>
+        {/**
+         * The date is not here any more: the byline below states it as
+         * "Published", and printing the same date twice on one screen reads as a
+         * mistake rather than as metadata.
+         */}
+        <p className="label-mono text-muted">{post.readingTime} min read</p>
         <h1 className="mt-4 text-3xl font-medium tracking-tight text-balance sm:text-4xl">
           {post.frontmatter.title}
         </h1>
-        {post.frontmatter.description ? (
-          <p className="mt-4 text-lg leading-relaxed text-muted">{post.frontmatter.description}</p>
+        {post.frontmatter.tags.length > 0 ? (
+          <div className="mt-5">
+            <PostTags tags={post.frontmatter.tags} />
+          </div>
         ) : null}
       </header>
+
+      <PostByline post={post} />
 
       {/*
         Copy button: one delegated listener instead of a React component per
@@ -133,9 +145,120 @@ export function BlogPostPage({ slug }: { slug: string }) {
         dangerouslySetInnerHTML={{ __html: post.html }}
       />
 
+      <RelatedPosts posts={related} />
+
       <PostLink post={older} direction="older" />
       <PostLink post={newer} direction="newer" />
     </article>
+  );
+}
+
+/**
+ * Who writes this, and when, between the title and the first paragraph.
+ *
+ * A byline belongs with the title rather than at the foot of the page: it is
+ * metadata about the post, not a note tacked on after it. It is also the one
+ * place a reader is told the post came from a person rather than a feed.
+ *
+ * The dates are stated rather than implied. "Published" is the frontmatter date;
+ * "Modified" appears only when the post carries an `updated:` one, because a
+ * build timestamp would claim a post had been revised when only its bundle had
+ * been rebuilt. Leaving the row off is the honest answer, not a gap.
+ *
+ * Held deliberately quiet — a 48px photo, the name in the muted colour, the red
+ * line a size down from the one in the hero — because the post itself is why the
+ * reader is here, and this sits directly above the first word of it. Anything
+ * louder here would be read before the content rather than alongside it.
+ *
+ * No top border: the header above already closes with one, and two hairlines
+ * with prose-sized text between them reads as a box around nothing.
+ */
+function PostByline({ post }: { post: BlogPost }) {
+  const published = post.frontmatter.date;
+  const modified = post.frontmatter.updated;
+
+  return (
+    <aside className="mt-6 flex items-start gap-3">
+      {profile.avatar ? (
+        <img
+          src={assetUrl(profile.avatar)}
+          alt={profile.name}
+          width={440}
+          height={440}
+          loading="eager"
+          decoding="async"
+          // A circle, at 48px. The hero's rounded square is a portrait card; this
+          // is a byline, and at that size the square reads as a card too.
+          // Eager, not lazy: it is above the fold, so lazy loading it would only
+          // delay a picture the reader is about to look at.
+          className="h-12 w-12 shrink-0 rounded-full object-cover ring-1 ring-border"
+        />
+      ) : null}
+      <div className="min-w-0">
+        <p className="text-sm text-muted">{profile.name}</p>
+        {profile.heroParagraph ? (
+          <p className="mt-0.5 font-serif text-base italic leading-snug text-pretty text-accent opacity-80">
+            {profile.heroParagraph}
+          </p>
+        ) : null}
+        {/**
+         * The same mono metadata voice as the line above the title, so the two
+         * read as one set of facts about the post rather than two designs.
+         */}
+        <p className="label-mono mt-3 text-muted">
+          {published ? (
+            <span>
+              Published <time dateTime={published}>{formatDate(published)}</time>
+            </span>
+          ) : null}
+          {modified ? (
+            <>
+              <span className="px-2 text-border-strong"> / </span>
+              <span>
+                Modified <time dateTime={modified}>{formatDate(modified)}</time>
+              </span>
+            </>
+          ) : null}
+        </p>
+      </div>
+    </aside>
+  );
+}
+
+/**
+ * Other posts on the same subject, by shared tag.
+ *
+ * These are ordinary links to real post pages, which is the point: they are the
+ * site's internal link graph, and a crawler reaches a post through the posts
+ * around it. The tags stay labels on the page — nothing here is a tag archive.
+ *
+ * Renders nothing when the post shares no tag with any other, because a heading
+ * over an empty section is worse than no section.
+ */
+function RelatedPosts({ posts }: { posts: BlogPostSummary[] }) {
+  if (posts.length === 0) return null;
+
+  return (
+    <section className="mt-14" aria-labelledby="related-heading">
+      <h2 id="related-heading" className="label-mono text-muted">
+        Related
+      </h2>
+      <ul className="mt-4 flex flex-col gap-3">
+        {posts.map((post) => (
+          <li key={post.slug}>
+            <a
+              href={postHref(post.slug, 'post')}
+              className="group flex flex-col gap-1 text-lg font-medium tracking-tight transition-colors hover:text-accent"
+            >
+              <span>{post.title}</span>
+              <span className="label-mono text-muted">
+                {formatDate(post.date)} / {post.readingTime} min read
+              </span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

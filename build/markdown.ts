@@ -6,6 +6,7 @@ import { codeToHtml } from 'shiki';
 import type { Plugin } from 'vite';
 import {
   writePostPages,
+  writePreviewImages,
   writeRobots,
   writeSitemap,
   writeCname,
@@ -27,10 +28,11 @@ import {
  *
  * A post is one folder: the markdown plus every asset it references, so a post
  * and its images are moved, renamed or deleted together. Images go next to the
- * `index.md` and are written `![alt](./diagram.svg)`, the same as before.
+ * `index.md` and are written `![alt](./diagram.svg)`, the same as before. The
+ * share card is named in the frontmatter the same way, `image: ./cover.png`.
  *
  * What it does per post:
- *   1. reads YAML frontmatter (title, date, description)
+ *   1. reads YAML frontmatter (title, date, description, image)
  *   2. renders markdown to HTML
  *   3. syntax-highlights code fences with Shiki, in a light AND a dark colour
  *      scheme, so code blocks follow the site's theme toggle
@@ -56,11 +58,21 @@ const PROJECTS_DATA = 'src/data/projects.ts';
 const EXPERIENCE_DATA = 'src/data/experience.ts';
 /** Every post folder holds this file. It is what makes the folder a post. */
 const POST_ENTRY = 'index.md';
-/** Fallback card. A post can override it with public/og/<slug>.png. */
-const DEFAULT_PREVIEW = '/og.png';
+/**
+ * Formats a share card can be in. Social networks fetch the image and read its
+ * type, so anything else is a blank preview: Twitter, Slack and WhatsApp all
+ * ignore an SVG card, which is the one mistake here that fails silently.
+ */
+const CARD_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
 const VIRTUAL_INDEX = 'virtual:blog-index';
 const RESOLVED_INDEX = `\0${VIRTUAL_INDEX}`;
 const WORDS_PER_MINUTE = 220;
+/**
+ * Characters of a derived description. Google's snippets run to about 160 and
+ * get truncated past that anyway, so anything longer is a longer string that
+ * still ends up cut somewhere.
+ */
+const SUMMARY_LIMIT = 155;
 /** Meta description for the blog archive page, `/blog/`. */
 const BLOG_DESCRIPTION =
   'Every post on backend systems, networking and the tools around them, newest first.';
@@ -84,12 +96,151 @@ function escapeAttribute(value: string): string {
   return escapeHtml(value);
 }
 
+/**
+ * The tags in a post's frontmatter.
+ *
+ * A bare string is accepted as a single tag, because `tags: python` is what most
+ * people write first and failing a build over it teaches nothing. Anything else
+ * is refused: a tag is shown to a reader, so a number or a nested list would
+ * render as `[object Object]` in the middle of the page.
+ */
+function parseTags(value: unknown, slug: string): string[] {
+  if (value === undefined || value === null) return [];
+
+  const list = Array.isArray(value) ? value : [value];
+  if (!list.every((tag) => typeof tag === 'string')) {
+    throw new Error(
+      `[blog] ${slug}/${POST_ENTRY} has a "tags" that is not a list of words: ` +
+        `${JSON.stringify(value)}. Write them as a list, e.g. tags: ['python', 'memory'].`,
+    );
+  }
+
+  return (list as string[]).map((tag) => tag.trim()).filter(Boolean);
+}
+
+/**
+ * The post's own description, derived from its first paragraph.
+ *
+ * A `description` field in the frontmatter is one more thing to forget and one
+ * more thing to leave stale, and a stale one is worse than none: Google shows
+ * it in the result, so a wrong one costs the click. A post's opening paragraph
+ * is already a deliberate sentence about the post, so it is the description, and
+ * there is nothing to keep in sync.
+ *
+ * Cut on a word boundary and without an ellipsis, because Google's own snippet
+ * generator does the same thing and an ellipsis in a meta description reads as
+ * truncated rather than chosen.
+ */
+function deriveSummary(content: string): string | undefined {
+  const paragraph = content
+    /**
+     * Frontmatter is already stripped, but a fenced block inside the body is
+     * not prose: its contents are code, and a post that opens with one has no
+     * sentence to quote.
+     */
+    .replace(/```[\s\S]*?```/g, ' ')
+    /**
+     * A lead image carries its own alt text, which is already in the article
+     * body, and a link's label is the sentence, not its URL.
+     */
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .split(/\n\s*\n/)
+    .map((block) =>
+      block
+        /**
+         * A heading introduces a section rather than describing the post, and a
+         * list of three short lines reads as a fragment when cut to one line.
+         */
+        .replace(/^[#>\s-]+/, '')
+        .replace(/[*_`]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim(),
+    )
+    .find((block) => block.length > 0);
+
+  if (!paragraph) return undefined;
+  if (paragraph.length <= SUMMARY_LIMIT) return paragraph;
+
+  /**
+   * Prefer a whole sentence. Google's own generator drops a half-finished clause
+   * rather than cutting mid-word, and so does a reader scanning a result page: a
+   * snippet that ends on a full stop reads as written, one that ends on "when I"
+   * reads as broken.
+   */
+  const window = paragraph.slice(0, SUMMARY_LIMIT);
+  const lastStop = Math.max(window.lastIndexOf('. '), window.lastIndexOf('? '));
+  if (lastStop > SUMMARY_LIMIT / 2) return window.slice(0, lastStop + 1).trim();
+
+  const lastSpace = window.lastIndexOf(' ');
+  return (lastSpace > SUMMARY_LIMIT / 2 ? window.slice(0, lastSpace) : window).trim();
+}
+
+/**
+ * A post's html with every `__ASSET_n__` placeholder replaced by the URL the
+ * emitted asset ended up at.
+ *
+ * Written document-relative on purpose: the same string is dropped into
+ * `dist/blog/<slug>/index.html`, and `renderPage` rewrites `./` against that
+ * page's own depth the same way it does for the app's assets.
+ */
+function resolveAssetPlaceholders(
+  html: string,
+  assets: string[],
+  getFileName: (reference: string) => string,
+): string {
+  return assets.reduce((out, reference, slot) => {
+    const fileName = getFileName(reference);
+    /**
+     * A silent `src=""` is worse than a failed build: the page still serves, the
+     * image is still gone, and nothing says why. `assetsInlineLimit: 0` below is
+     * what keeps this unreachable by not inlining post images in the first place.
+     */
+    if (!fileName) {
+      throw new Error(`[blog] an image was inlined instead of emitted, so it has no URL.`);
+    }
+    return out.split(`__ASSET_${slot}__`).join(`./${fileName}`);
+  }, html);
+}
+
+/**
+ * The post's modification date, from `updated:` in the frontmatter.
+ *
+ * Optional, and absent means the post has never been revised — which is a fact
+ * worth stating rather than filling in. The obvious alternative, the file's last
+ * commit date, is not usable: the deploy workflow checks out a shallow clone, so
+ * there is no history to read there, and a build that guessed would claim a post
+ * was revised when only its bundle was rebuilt.
+ */
+function resolveUpdated(slug: string, value: unknown, published?: string): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+
+  const updated = value instanceof Date ? value.toISOString().slice(0, 10) : value;
+  if (typeof updated !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(updated)) {
+    throw new Error(
+      `[blog] ${slug}/${POST_ENTRY} has an "updated" that is not a date: ${JSON.stringify(value)}. ` +
+        `Write it as YYYY-MM-DD, e.g. updated: '2026-01-02'.`,
+    );
+  }
+
+  if (published && updated < published) {
+    throw new Error(
+      `[blog] ${slug}/${POST_ENTRY} was updated on ${updated}, before it was published on ` +
+        `${published}. A post cannot be revised before it exists.`,
+    );
+  }
+
+  return updated;
+}
+
 /** Reads a post from disk and returns its metadata for the list page. */
 function readSummary(slug: string): {
   slug: string;
   title: string;
   date?: string;
-  description?: string;
+  updated?: string;
+  tags: string[];
+  summary?: string;
   readingTime: number;
 } {
   const fullPath = postPath(slug);
@@ -105,11 +256,15 @@ function readSummary(slug: string): {
     .split(/\s+/)
     .filter(Boolean).length;
 
+  const date = data.date instanceof Date ? data.date.toISOString().slice(0, 10) : data.date;
+
   return {
     slug,
     title: data.title,
-    date: data.date instanceof Date ? data.date.toISOString().slice(0, 10) : data.date,
-    description: typeof data.description === 'string' ? data.description : undefined,
+    date,
+    updated: resolveUpdated(slug, data.updated, date),
+    tags: parseTags(data.tags, slug),
+    summary: deriveSummary(content),
     readingTime: Math.max(1, Math.round(words / WORDS_PER_MINUTE)),
   };
 }
@@ -188,13 +343,64 @@ function assertIsPost(id: string): string {
   return slug;
 }
 
+/** One post's share card: the file to copy, and the URL the meta tags carry. */
+interface PreviewImage {
+  /** Site-root-relative, e.g. `/blog/my-post/og.png`. */
+  url: string;
+  /** Absolute path of the file to copy into the build. */
+  source: string;
+}
+
 /**
- * Preview image for a post's social card. Social networks only accept raster
- * formats, so the card is a PNG: `public/og/<slug>.png` when you have made one,
- * otherwise the site-wide `public/og.png`.
+ * The share card a post names in its own frontmatter, `image: './cover.png'`,
+ * resolved against the post folder so the picture sits beside the markdown like
+ * every other image in a post and the post still moves and deletes as one unit.
+ *
+ * A post with no `image` gets no card at all. There used to be a site-wide
+ * fallback here, which meant every post previewed as a photo of the author with
+ * no hint of the post: a text card carrying the post's own title is worth more
+ * than a picture that says nothing, so the tags are simply not written.
  */
-function previewImage(slug: string): string {
-  return fs.existsSync(`public/og/${slug}.png`) ? `/og/${slug}.png` : DEFAULT_PREVIEW;
+function resolvePreview(slug: string, value: unknown, postDir: string): PreviewImage | undefined {
+  if (value === undefined || value === null) return undefined;
+
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error(
+      `[blog] ${slug}/${POST_ENTRY} has an "image" that is not a file name: ` +
+        `${JSON.stringify(value)}.`,
+    );
+  }
+
+  const file = path.resolve(postDir, value);
+  const extension = path.extname(file).toLowerCase();
+
+  if (!CARD_EXTENSIONS.includes(extension)) {
+    const named = extension ? `a .${extension.slice(1)} file` : 'a name with no file extension';
+    throw new Error(
+      `[blog] ${slug}/${POST_ENTRY} has "image: ${value}", and ${named} is not a format social ` +
+        'networks read. Twitter, Slack and WhatsApp ignore an SVG card, so the share preview ' +
+        'would come out blank or fall back to whatever they scrape. Export a PNG, 1200x630, ' +
+        'beside the markdown instead.',
+    );
+  }
+
+  if (!fs.existsSync(file)) {
+    throw new Error(
+      `[blog] ${slug}/${POST_ENTRY} names a share image that does not exist: ${value}. It is ` +
+        `read from the post's own folder, so the file has to sit beside the markdown.`,
+    );
+  }
+
+  // `og.<ext>` rather than the author's file name: one predictable URL per post,
+  // and nothing from a file name ends up in a URL a crawler records. The
+  // extension is kept because it is the type the network checks first.
+  return { url: `/blog/${slug}/og${extension}`, source: file };
+}
+
+/** The share card of one post, read from disk. Used by the static page writers. */
+function postPreview(slug: string): PreviewImage | undefined {
+  const { data } = matter(fs.readFileSync(postPath(slug), 'utf8'));
+  return resolvePreview(slug, data.image, path.dirname(postPath(slug)));
 }
 
 /**
@@ -253,7 +459,6 @@ function readListingPage(id: string): ListingPageData {
     return {
       id,
       description,
-      image: DEFAULT_PREVIEW,
       items: readDataObjects(PROJECTS_DATA).map((project) => ({
         text: project.title,
         href: project.githubUrl,
@@ -264,7 +469,6 @@ function readListingPage(id: string): ListingPageData {
   return {
     id,
     description,
-    image: DEFAULT_PREVIEW,
     items: readDataObjects(EXPERIENCE_DATA).map((entry) => {
       // Newest first is how the data file is written, and it is the order a reader
       // wants here too. The period goes in brackets because it is itself a span
@@ -337,11 +541,32 @@ export function markdownBlog(): Plugin {
   /** Set in `build`, read in `transform`. */
   let isServe = false;
 
+  /**
+   * Every post's rendered html, keyed by slug, as `transform` produced it, plus
+   * the Rollup reference each `__ASSET_n__` placeholder is waiting on.
+   */
+  const rendered = new Map<string, { html: string; assets: string[] }>();
+  /**
+   * The same html with real asset URLs, filled in by `generateBundle` and read by
+   * `closeBundle`, which is the first hook that runs with `dist/` on disk.
+   */
+  const prerendered = new Map<string, string>();
+
   return {
     name: 'markdown-blog',
 
     configResolved(config) {
       isServe = config.command === 'serve';
+    },
+
+    /**
+     * Every image a post shows has to have a real URL in the prerendered page —
+     * an inlined asset exists only inside the JavaScript bundle, so a no-JS reader
+     * and an image crawler would get nothing. None of the site's other images are
+     * emitted from source, so nothing else is affected by not inlining.
+     */
+    config() {
+      return { build: { assetsInlineLimit: 0 } };
     },
 
     resolveId(id) {
@@ -502,17 +727,29 @@ export function markdownBlog(): Plugin {
         '<figure class="prose-figure">$1</figure>',
       );
 
+      const date =
+        data.date instanceof Date
+          ? data.date.toISOString().slice(0, 10)
+          : typeof data.date === 'string'
+            ? data.date
+            : undefined;
+
       const frontmatter = {
         title: data.title as string,
-        image: previewImage(slug),
-        date:
-          data.date instanceof Date
-            ? data.date.toISOString().slice(0, 10)
-            : typeof data.date === 'string'
-              ? data.date
-              : undefined,
-        description: typeof data.description === 'string' ? data.description : undefined,
+        image: resolvePreview(slug, data.image, markdownDir)?.url,
+        date,
+        updated: resolveUpdated(slug, data.updated, date),
+        tags: parseTags(data.tags, slug),
+        summary: deriveSummary(content),
       };
+
+      /**
+       * Kept for the static page this post gets below, with the `__ASSET_n__`
+       * placeholders still unresolved. The module itself resolves them at
+       * runtime from `import.meta.ROLLUP_FILE_URL_*`; the prerendered copy needs
+       * real URLs, which only exist once Rollup has named the assets.
+       */
+      rendered.set(slug, { html, assets });
 
       const assetImports = assets
         .map((reference, slot) => `assets[${slot}] = import.meta.ROLLUP_FILE_URL_${reference};`)
@@ -538,8 +775,21 @@ export function markdownBlog(): Plugin {
     },
 
     /**
+     * Runs after every module is transformed but before `dist/` exists, which is
+     * the only place the final asset filenames are known: the module resolves
+     * `__ASSET_n__` at runtime from `import.meta.ROLLUP_FILE_URL_*`, and the
+     * prerendered copy in the static page cannot.
+     */
+    generateBundle() {
+      const getFileName = this.getFileName.bind(this);
+      for (const [slug, post] of rendered) {
+        prerendered.set(slug, resolveAssetPlaceholders(post.html, post.assets, getFileName));
+      }
+    },
+
+    /**
      * Runs once the bundle is written. Every post becomes a real static page
-     * under `blog/<slug>/`, and the sitemap picks them up.
+     * under `blog/<slug>`, and the sitemap picks them up.
      */
     closeBundle() {
       if (isServe) return;
@@ -547,17 +797,33 @@ export function markdownBlog(): Plugin {
       const siteUrl = readSiteUrl();
       const posts = postSlugs().map((slug) => {
         const summary = readSummary(slug);
-        return { ...summary, image: previewImage(summary.slug) };
+        const preview = postPreview(slug);
+        /**
+         * Fail rather than ship a thin page. A post whose html is missing here
+         * means its module was never transformed, so the crawler copy would
+         * silently be the "needs JavaScript" stub — the exact failure this
+         * prerender exists to remove.
+         */
+        const html = prerendered.get(slug);
+        if (!html) {
+          throw new Error(`[blog] ${slug}/${POST_ENTRY} was not transformed, so it has no html.`);
+        }
+        return { ...summary, html, image: preview?.url, imageSource: preview?.source };
       });
 
       const options = {
         outDir: 'dist',
         siteUrl,
         posts,
-        blog: { description: BLOG_DESCRIPTION, image: DEFAULT_PREVIEW },
+        blog: { description: BLOG_DESCRIPTION },
         pages: LISTING_PAGES.map(readListingPage),
       };
       const written = writePostPages(options);
+      /**
+       * After the pages, because `writePostPages` clears `dist/blog` before it
+       * writes the post directories, and the card goes into one of those.
+       */
+      writePreviewImages(options);
       writeSitemap(options);
       writeRobots(options);
       /**
