@@ -37,7 +37,7 @@ export function useTheme() {
   // Keeps the browser UI (address bar on mobile) in step with the page.
   useEffect(() => {
     const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-    if (meta) meta.content = theme === 'dark' ? '#0d0d0d' : '#ffffff';
+    if (meta) meta.content = theme === 'dark' ? '#0d0d0d' : '#f7f6f4';
   }, [theme]);
 
   const toggleTheme = useCallback(() => {

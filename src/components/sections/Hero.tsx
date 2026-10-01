@@ -102,7 +102,7 @@ export function Hero() {
               The accent at full strength made this the loudest thing in the hero and
               it pulled the eye off the name, which is supposed to win. At 80% the
               sentence is still clearly red and still the only warm note, but it sits
-              back. 80% is the floor: on white it is ~4.6:1, so one more step down
+              back. 80% is the floor: on the light page it is ~4.4:1, so one more step down
               would fail contrast for 18px body-size text. The dark value is lighter
               and has room to spare.
 

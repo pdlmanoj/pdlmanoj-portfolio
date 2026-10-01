@@ -102,7 +102,7 @@ export function BlogPostPage({ slug }: { slug: string }) {
         All posts
       </a>
 
-      <header className="mt-8 border-b border-border pb-8">
+      <header className="mt-8">
         {/**
          * The date is not here any more: the byline below states it as
          * "Published", and printing the same date twice on one screen reads as a
@@ -170,15 +170,18 @@ export function BlogPostPage({ slug }: { slug: string }) {
  * reader is here, and this sits directly above the first word of it. Anything
  * louder here would be read before the content rather than alongside it.
  *
- * No top border: the header above already closes with one, and two hairlines
- * with prose-sized text between them reads as a box around nothing.
+ * The hairline is below the byline, not above it: the title block owns the top of
+ * the page and the post body owns the rule that opens the prose, so the byline
+ * reads as part of the header rather than as the header's own footer. One rule,
+ * immediately above the content, is also the mark that says the front matter has
+ * ended — a rule above the byline closed a box around nothing instead.
  */
 function PostByline({ post }: { post: BlogPost }) {
   const published = post.frontmatter.date;
   const modified = post.frontmatter.updated;
 
   return (
-    <aside className="mt-6 flex items-start gap-3">
+    <aside className="mt-6 flex items-start gap-3 border-b border-border pb-8">
       {profile.avatar ? (
         <img
           src={assetUrl(profile.avatar)}

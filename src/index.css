@@ -13,26 +13,35 @@
 [data-theme='light'] {
   color-scheme: light;
 
-  --bg: #ffffff;
+  /*
+   * Not #ffffff. Pure white behind a long post is the glare case: dark text on
+   * it thins out and the page reads as brighter than it is. A warm off-white one
+   * step down is still light, still clean, and gives #161616 something to sit
+   * on. Warm rather than neutral because the accent is warm, so the page has a
+   * single temperature instead of a warm page under a cool one.
+   */
+  --bg: #f7f6f4;
   --text: #161616;
   --muted: #6b6b6b;
   /*
    * The one warm colour on the site. It is what a link, a focus ring and a hover
    * all turn, and it is the hero's one warm sentence, so the accent never reads
-   * as a second meaning. Dark enough to clear 4.5:1 on white, so it is still body
-   * text and not decoration.
+   * as a second meaning. Dark enough to clear 4.5:1 on the page, so it is still
+   * body text and not decoration.
    */
   --accent: #b4231f;
-  --border: #e6e6e6;
-  --border-strong: #cccccc;
+  --border: #e0dfdc;
+  --border-strong: #c6c5c2;
   --hover: rgb(0 0 0 / 0.05);
-  --code-bg: #f6f8fa;
+  /* One step off --bg, or a code block disappears into the page it sits on. */
+  --code-bg: #efeeeb;
   /*
-   * Cards. The page is white, so a card is a shade off it rather than brighter,
-   * and the shadow is near enough to invisible until the pointer is on it. Both
-   * are held to the smallest step that still separates a card from the page.
+   * Cards. The page is off-white, so a card is the shade nearest to it that still
+   * reads as a separate plane, and the shadow is near enough to invisible until
+   * the pointer is on it. Both are held to the smallest step that still separates
+   * a card from the page.
    */
-  --surface: #fbfbfb;
+  --surface: #fdfdfc;
   --surface-shadow: rgb(0 0 0 / 0.06);
   --surface-shadow-hover: rgb(0 0 0 / 0.11);
   /*
