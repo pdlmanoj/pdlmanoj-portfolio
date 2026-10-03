@@ -24,7 +24,8 @@ import {
  *
  * Drop an `index.md` file in a folder under `src/content/blog/` and that folder
  * name becomes the post: it appears in the list and gets its own page at
- * `/blog/<folder-name>/`. Nothing else to register.
+ * `/blog/<folder-name>/`. Nothing else to register. `published: false` in the
+ * frontmatter holds it back while it is being written — see `parsePublished`.
  *
  * A post is one folder: the markdown plus every asset it references, so a post
  * and its images are moved, renamed or deleted together. Images go next to the
@@ -32,7 +33,7 @@ import {
  * share card is named in the frontmatter the same way, `image: ./cover.png`.
  *
  * What it does per post:
- *   1. reads YAML frontmatter (title, date, description, image)
+ *   1. reads YAML frontmatter (title, date, description, image, published)
  *   2. renders markdown to HTML
  *   3. syntax-highlights code fences with Shiki, in a light AND a dark colour
  *      scheme, so code blocks follow the site's theme toggle
@@ -233,8 +234,61 @@ function resolveUpdated(slug: string, value: unknown, published?: string): strin
   return updated;
 }
 
-/** Reads a post from disk and returns its metadata for the list page. */
-function readSummary(slug: string): {
+/**
+ * `published: false` in the frontmatter holds a post back.
+ *
+ * A draft gets no listing entry, no page, no sitemap row and no share card, so
+ * pushing one cannot show a half-written post to a reader or a crawler. It is
+ * how a post is written on the live repo: the folder and its markdown are
+ * committed as they are, and the one line that publishes them is added when the
+ * writing is done.
+ *
+ * Absent means published, not the other way round. A new field defaulting to
+ * hidden would silently unpublish every post that does not name it, and a blog
+ * that quietly loses its posts is worse than one that shows a draft; opting in
+ * to a draft is also one word to forget, while removing a word to publish is the
+ * step you take deliberately.
+ *
+ * Only `true` and `false` are accepted. This is the one field where a typo is
+ * dangerous rather than noisy — `published: 'false'` or `published: no` read as
+ * a non-empty string, which is not `false`, so a post marked as a draft would
+ * publish instead. Refusing the value is the only outcome that is safe here.
+ */
+function parsePublished(slug: string, value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+
+  if (typeof value !== 'boolean') {
+    throw new Error(
+      `[blog] ${slug}/${POST_ENTRY} has a "published" that is not true or false: ` +
+        `${JSON.stringify(value)}. Write it unquoted as published: false to hold the post ` +
+        `back, or leave the field out to publish it.`,
+    );
+  }
+
+  return value;
+}
+
+/**
+ * The post's title, which every published post has to have: it is the `h1`, the
+ * `<title>`, the Open Graph title and the archive row.
+ *
+ * A draft is the exception, because a draft is often written before it is
+ * finished and a post that is mid-write is exactly the one whose title is not
+ * written yet. Its slug stands in, which is never published and only ever read
+ * in the dev server.
+ */
+function resolveTitle(slug: string, value: unknown, published: boolean): string {
+  if (typeof value === 'string' && value.trim()) return value;
+
+  if (published) {
+    throw new Error(`[blog] ${slug}/${POST_ENTRY} is missing a "title" in its frontmatter.`);
+  }
+
+  return slug;
+}
+
+/** One post's metadata, as the index and the static page writers consume it. */
+interface PostSummary {
   slug: string;
   title: string;
   date?: string;
@@ -242,13 +296,22 @@ function readSummary(slug: string): {
   tags: string[];
   summary?: string;
   readingTime: number;
-} {
+}
+
+/**
+ * Reads a post from disk: its metadata for the list page, and whether it opted
+ * out of publication.
+ *
+ * The flag travels beside the metadata rather than inside it because every
+ * consumer of a summary wants one or the other, never both: the reader of the
+ * index wants posts that are published, and the filter wants to know which are
+ * not.
+ */
+function readSummary(slug: string): { summary: PostSummary; published: boolean } {
   const fullPath = postPath(slug);
   const { data, content } = matter(fs.readFileSync(fullPath, 'utf8'));
-
-  if (!data.title || typeof data.title !== 'string') {
-    throw new Error(`[blog] ${fullPath} is missing a "title" in its frontmatter.`);
-  }
+  const published = parsePublished(slug, data.published);
+  const date = data.date instanceof Date ? data.date.toISOString().slice(0, 10) : data.date;
 
   const words = content
     .replace(/```[\s\S]*?```/g, ' ')
@@ -256,17 +319,45 @@ function readSummary(slug: string): {
     .split(/\s+/)
     .filter(Boolean).length;
 
-  const date = data.date instanceof Date ? data.date.toISOString().slice(0, 10) : data.date;
-
   return {
-    slug,
-    title: data.title,
-    date,
-    updated: resolveUpdated(slug, data.updated, date),
-    tags: parseTags(data.tags, slug),
-    summary: deriveSummary(content),
-    readingTime: Math.max(1, Math.round(words / WORDS_PER_MINUTE)),
+    published,
+    summary: {
+      slug,
+      title: resolveTitle(slug, data.title, published),
+      date,
+      updated: published ? resolveUpdated(slug, data.updated, date) : undefined,
+      tags: parseTags(data.tags, slug),
+      summary: deriveSummary(content),
+      readingTime: Math.max(1, Math.round(words / WORDS_PER_MINUTE)),
+    },
   };
+}
+
+/**
+ * Every published post's metadata, newest first. Undated posts fall to the end,
+ * then alphabetical.
+ *
+ * Drafts are dropped here, which is the one place that keeps them out of
+ * everything: the index is what the archive, the homepage count and the prev/next
+ * and related links are all built from, so a draft can be neither listed nor
+ * linked, and this is the same list the static pages and the sitemap are written
+ * from. The dev server filters drafts out of the index too, so the list it shows
+ * is the list the deployed site will show.
+ */
+function publishedSummaries(): PostSummary[] {
+  const summaries = postSlugs()
+    .map(readSummary)
+    .filter((read) => read.published)
+    .map((read) => read.summary);
+
+  summaries.sort((a, b) => {
+    if (a.date === b.date) return a.slug.localeCompare(b.slug);
+    if (!a.date) return 1;
+    if (!b.date) return -1;
+    return b.date.localeCompare(a.date);
+  });
+
+  return summaries;
 }
 
 /** Absolute path of a post's entry file, from its slug. */
@@ -628,16 +719,7 @@ export function markdownBlog(): Plugin {
     load(id) {
       if (id !== RESOLVED_INDEX) return null;
 
-      const summaries = postSlugs().map(readSummary);
-      // Newest first. Undated posts fall to the end, then alphabetical.
-      summaries.sort((a, b) => {
-        if (a.date === b.date) return a.slug.localeCompare(b.slug);
-        if (!a.date) return 1;
-        if (!b.date) return -1;
-        return b.date.localeCompare(a.date);
-      });
-
-      return `export const posts = ${JSON.stringify(summaries, null, 2)};\n`;
+      return `export const posts = ${JSON.stringify(publishedSummaries(), null, 2)};\n`;
     },
 
     async transform(code, id) {
@@ -645,10 +727,16 @@ export function markdownBlog(): Plugin {
 
       const slug = assertIsPost(id);
       const { data, content } = matter(code);
+      const published = parsePublished(slug, data.published);
 
-      if (!data.title || typeof data.title !== 'string') {
-        throw new Error(`[blog] ${slug}/${POST_ENTRY} is missing a "title" in its frontmatter.`);
-      }
+      /**
+       * A draft is still transformed, because `src/lib/blog.ts` globs every post
+       * folder and a missing module is a build error. What it must not do is
+       * refuse a half-written post: the title, the share card and the `updated`
+       * check are all checked only for a post that is about to be published, so
+       * a post being written cannot fail the deploy of everything else. The dev
+       * server is the only place a draft is ever read.
+       */
 
       // Asset references collected while rendering images, filled in below.
       const assets: string[] = [];
@@ -735,12 +823,13 @@ export function markdownBlog(): Plugin {
             : undefined;
 
       const frontmatter = {
-        title: data.title as string,
-        image: resolvePreview(slug, data.image, markdownDir)?.url,
+        title: resolveTitle(slug, data.title, published),
+        image: published ? resolvePreview(slug, data.image, markdownDir)?.url : undefined,
         date,
-        updated: resolveUpdated(slug, data.updated, date),
+        updated: published ? resolveUpdated(slug, data.updated, date) : undefined,
         tags: parseTags(data.tags, slug),
         summary: deriveSummary(content),
+        published,
       };
 
       /**
@@ -788,25 +877,27 @@ export function markdownBlog(): Plugin {
     },
 
     /**
-     * Runs once the bundle is written. Every post becomes a real static page
-     * under `blog/<slug>`, and the sitemap picks them up.
+     * Runs once the bundle is written. Every published post becomes a real static
+     * page under `blog/<slug>`, and the sitemap picks them up. A draft is left
+     * out of all of it: no directory, no sitemap entry, no share card.
      */
     closeBundle() {
       if (isServe) return;
 
       const siteUrl = readSiteUrl();
-      const posts = postSlugs().map((slug) => {
-        const summary = readSummary(slug);
-        const preview = postPreview(slug);
+      const posts = publishedSummaries().map((summary) => {
+        const preview = postPreview(summary.slug);
         /**
          * Fail rather than ship a thin page. A post whose html is missing here
          * means its module was never transformed, so the crawler copy would
          * silently be the "needs JavaScript" stub — the exact failure this
          * prerender exists to remove.
          */
-        const html = prerendered.get(slug);
+        const html = prerendered.get(summary.slug);
         if (!html) {
-          throw new Error(`[blog] ${slug}/${POST_ENTRY} was not transformed, so it has no html.`);
+          throw new Error(
+            `[blog] ${summary.slug}/${POST_ENTRY} was not transformed, so it has no html.`,
+          );
         }
         return { ...summary, html, image: preview?.url, imageSource: preview?.source };
       });

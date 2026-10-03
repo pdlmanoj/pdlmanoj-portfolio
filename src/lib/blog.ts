@@ -41,6 +41,20 @@ export interface BlogFrontmatter {
    */
   tags: string[];
   /**
+   * `published: false` from the frontmatter: false while the post is a draft.
+   *
+   * A draft is not published — no listing entry, no page, no sitemap row, no
+   * share card — and the app refuses to hand one out either, so its URL is a 404
+   * on the deployed site. Only the dev server will show one, which is where you
+   * read the post you are writing.
+   *
+   * The built bundle still carries a draft's markdown, because the loader globs
+   * every post folder and a missing module would fail the build. So this is
+   * "not published", not "not shipped": it is a link nothing offers, not a
+   * secret. Nothing here should ever read it for a published post.
+   */
+  published: boolean;
+  /**
    * The post's own share card, from `image:` in the frontmatter, resolved by the
    * build to the URL it published the file at — `/blog/<slug>/og.png`. Absent
    * when the post names no image, and then the page carries no `og:image` at
@@ -80,12 +94,21 @@ const modules = import.meta.glob<{
   default: { slug: string; frontmatter: BlogFrontmatter; html: string };
 }>('../content/blog/*/index.md');
 
-/** Loads one post's rendered HTML. Returns undefined for an unknown slug. */
+/**
+ * Loads one post's rendered HTML. Returns undefined for an unknown slug, and for
+ * a draft in the built site.
+ *
+ * The draft check is what stops a draft's URL from rendering it: the app also
+ * boots on the 404 page for a path that has no static page behind it, so without
+ * this a draft would be readable by anyone who guessed or kept the slug.
+ */
 export async function loadPost(slug: string): Promise<BlogPost | undefined> {
   const loader = modules[`../content/blog/${slug}/index.md`];
   if (!loader) return undefined;
 
   const { slug: postSlug, frontmatter, html } = (await loader()).default;
+  if (!frontmatter.published && !import.meta.env.DEV) return undefined;
+
   const summary = posts.find((post) => post.slug === postSlug);
 
   return {

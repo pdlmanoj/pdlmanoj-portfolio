@@ -19,6 +19,7 @@ declare module '*.md' {
       tags: string[];
       summary?: string;
       image?: string;
+      published: boolean;
     };
     html: string;
   };

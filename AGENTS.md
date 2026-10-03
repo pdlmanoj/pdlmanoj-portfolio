@@ -118,12 +118,35 @@ they are in bookmarks and in the search index, and a 404 would break the promise
 ## Content model
 
 - **Post**: `src/content/blog/<slug>/index.md`, frontmatter `title` (required),
-  `date`, `description`, `image`. A post is a folder so its images sit beside the markdown
+  `date`, `updated`, `tags`, `image`, `published`. A post is a folder so its images sit beside the markdown
   that references them, and the post moves and deletes as one unit. The build
   fails loudly on a missing title, and also on any `.md` that is not a post
   folder's `index.md`, because a stray file is never imported and would
-  otherwise be a post that silently never appears. The summary comes from
-  frontmatter, not from the body.
+  otherwise be a post that silently never appears. There is no `description:`
+  field: the summary is derived by the build from the post's first paragraph,
+  so it cannot be left stale.
+- **A draft** is `published: false`. It gets no listing entry, no page, no
+  sitemap row and no share card, and the built app refuses to serve one, so its
+  URL is a 404 — which is what makes a post writable on the live repo: commit
+  the folder as you write it, and add the one line that publishes it when the
+  writing is done. Two decisions are load-bearing:
+  - **Absent means published.** A new field defaulting to hidden would silently
+    unpublish every post that does not name it, and a blog that quietly loses
+    its posts is worse than one that shows a draft.
+  - **Only `true` and `false` are accepted.** This is the one field where a typo
+    is dangerous rather than noisy: `published: 'false'` is a non-empty string,
+    which is not `false`, so the "draft" would publish. The build refuses the
+    value instead.
+    A draft is also the one post whose frontmatter is not validated — no title, no
+    card and no `updated` check — because a post that is mid-write is exactly the
+    one that is missing them, and it must not be able to fail the deploy of
+    everything else. Its title falls back to the slug. The dev server still renders
+    a draft at its URL, which is where you read it; the archive does not list it
+    there either, so the list you see locally is the list the deployed site has.
+    Note what a draft is not: its markdown and its images still ship in the JS
+    bundle, because the loader globs every post folder and a missing module would
+    fail the build. So this is "not published", not "not shipped" — a link nothing
+    offers, not a secret.
 - **A post's share image** is `image: ./cover.png` in the same frontmatter: a PNG
   or JPEG beside the markdown, published to `/blog/<slug>/og.png`. It is
   optional, and a post without one has no `og:image` at all rather than a default
@@ -210,6 +233,10 @@ they are in bookmarks and in the search index, and a 404 would break the promise
   `site.url`
 - `404.html`, root-absolute assets, `noindex`
 
+Every one of those is written from `publishedSummaries()`, which is the list of
+published posts only: a draft produces no directory, no sitemap entry and no card,
+so the writers above need no draft check of their own.
+
 `robots.txt`, `sitemap.xml` and `CNAME` are written here rather than committed to
 `public/`, because each embeds the site URL and that URL is only known from
 `src/data/site.ts`. Keep them out of `public/`: a committed copy is a second
@@ -291,8 +318,10 @@ There is no test framework in `package.json`. The checks are Playwright-style CD
 scripts that live **outside the repo**, in `/tmp/opencode`, and they are not
 committed. If they are missing, `npm run build` plus a manual pass is the floor.
 
-Current state, re-measured 2026-09-30: `/tmp/opencode` holds **only**
-`verify-share-cards.mjs`. Every other script this file names — `verify.cjs`,
+Current state, re-measured 2026-10-03: `/tmp/opencode` holds
+`verify-share-cards.mjs` and `verify-drafts.mjs`, plus unnamed leftovers
+(`measure.mjs`, `shoot.mjs`, `verify-byline.mjs`) from ad-hoc checks. Every other
+script this file names — `verify.cjs`,
 `verify-theme.cjs`, `verify-crawler.cjs`, `verify-blog.cjs`, `verify-nav.cjs`,
 `verify-blog-page.cjs`, `verify-dev.cjs`, `verify-cleanup.cjs`,
 `verify-domain.mjs` and `gh-pages-server.py` — is **absent** from this machine,
@@ -300,6 +329,13 @@ including the two (`verify-home`, `verify-type`, …) that an earlier revision o
 this file described as present. The expected counts below are from when they last
 ran: a target, not a current result. Do not report them as passing without
 re-running them.
+
+One environment note, learned the hard way: **a `python3 -m http.server` spawned
+from node never binds on this machine** — the process starts, stays alive and
+listens to nothing, so every script that serves `dist/` failed with
+`ECONNREFUSED` while the same command from a shell worked. Both scripts here
+serve `dist/` from a small node `http.createServer` instead. If a script of yours
+fails to connect to its own server, that is why; it is not the site.
 
 | Script                   | Covers                                                                   | Expected |
 | ------------------------ | ------------------------------------------------------------------------ | -------- |
@@ -313,14 +349,26 @@ re-running them.
 | `verify-cleanup.cjs`     | cleanup pass: canonicals, og:site_name, headings, theme                  | 48/48    |
 | `verify-domain.mjs`      | CNAME, sitemap, canonicals, JSON-LD, 404 — no browser needed             | 115/115  |
 | `verify-share-cards.mjs` | a post's share card, in the static HTML and after client-side navigation | 15/15    |
+| `verify-drafts.mjs`      | `published: false`: 404 in the built site, readable on the dev server    | 6/6      |
 
-`verify-share-cards.mjs` is the one that is here. It builds, serves `dist/` on
-:4180 with `python3 -m http.server`, drives headless chromium over raw CDP, and
+`verify-share-cards.mjs` builds, serves `dist/` on :4180, drives headless
+chromium over raw CDP, and
 checks that a post naming a card gets `og:image` and `summary_large_image` in its
 static page and again after the app boots, that a post without one has neither,
 and that navigating from a post with a card to one without takes the tags back
 out. It creates a `zz-card-test` fixture post with a generated PNG and deletes it
-again.
+again. Its `a post without a card still has its derived description` check was
+failing for a reason that had nothing to do with cards: the fixture body was the
+word `Body.`, and the description is derived from the first paragraph, which is
+now 5 characters of nothing. The fixture writes a real sentence instead.
+
+`verify-drafts.mjs` builds with a `zz-draft-check` fixture marked
+`published: false`, serves `dist/` on :4181 and starts the dev server on :5199 in
+the same run. It checks that the draft's URL renders `Post not found` in the built
+site, that its text is nowhere on the page, that the archive does not list it and
+that no `dist/blog/zz-draft-check` exists — then that the dev server renders the
+same URL, which is how you read a post you are writing. Delete the fixture by
+hand if a run is killed.
 
 `verify-domain.mjs` covers the custom domain: `CNAME`, the `Sitemap:` line, every
 sitemap `<loc>` resolving to a real file, one canonical per page matching its
@@ -333,6 +381,7 @@ page now fails by design.
 ```bash
 npm run build
 node /tmp/opencode/verify-share-cards.mjs     # 15/15, needs chromium
+node /tmp/opencode/verify-drafts.mjs          # 6/6, needs chromium
 
 # the rest, when they are back:
 npm run build
