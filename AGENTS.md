@@ -41,7 +41,7 @@ build/post-pages.ts    writes dist/blog/<slug>/index.html, dist/blog/index.html,
                        and 404.html
 src/content/blog/      one folder per post: <slug>/index.md plus its images
                        and its share card; the folder name is the URL
-src/data/              profile, projects, experience, site settings
+src/data/              profile, projects, experience, site settings, giscus comments
 src/lib/assets.ts      site-root URLs: files in public/ (assetUrl) and the site's
                        own pages (pageUrl)
 src/lib/blog.ts        post loading, summaries, prev/next, href helpers
@@ -49,6 +49,7 @@ src/lib/seo.ts         runtime meta/canonical/OG updates, and the copy for the
                        listing pages, which the build reads from here
 src/hooks/useHashRoute.ts  router: home hashes, /blog/, /blog/<slug>/,
                        /projects/, /experience/, legacy hashes
+src/components/blog/PostComments.tsx  lazy giscus widget at the foot of a post
 src/components/layout/PageHeader.tsx  back link + h1 + intro, shared by the
                        three pages that are not the homepage
 src/components/layout/SectionHeader.tsx  heading + intro for a block inside the
@@ -218,6 +219,22 @@ they are in bookmarks and in the search index, and a 404 would break the promise
 
 `src/components/projects/ProjectCard.tsx` has a deliberate edit by the site owner
 (read it before "simplifying" it). Leave it alone.
+
+## Comments
+
+`src/data/comments.ts` holds the giscus settings copied from the old Jekyll site.
+`PostComments` renders them at the very foot of each post, after the older/newer
+links. The widget is client-only: the built HTML has no comment markup, and
+crawlers are not asked to index a discussion. It stays inert until the section is
+within 200px of the viewport (`lazy`), then the giscus script is injected once.
+The iframe uses giscus's own light/dark themes, not a custom one; the script reads
+`data-theme` from `<html>` when it loads, and a `MutationObserver` posts
+`setConfig` to the frame so the navbar toggle changes the comments too.
+
+Do not change `mapping: 'pathname'` casually. Discussions are keyed by the URL
+path, so a renamed slug leaves its comments on the old path and a different path
+scheme from the old blog means the old threads do not appear. The repo and
+category ids must also match the public GitHub discussion category.
 
 ## Build-time static output
 

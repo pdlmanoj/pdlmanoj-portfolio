@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { setPageMeta } from '../lib/seo';
 import { profile } from '../data/profile';
 import { assetUrl } from '../lib/assets';
+import { PostComments } from '../components/blog/PostComments';
 import { PostTags } from '../components/blog/PostTags';
 import {
   blogHref,
@@ -149,6 +150,8 @@ export function BlogPostPage({ slug }: { slug: string }) {
 
       <PostLink post={older} direction="older" />
       <PostLink post={newer} direction="newer" />
+
+      <PostComments />
     </article>
   );
 }
