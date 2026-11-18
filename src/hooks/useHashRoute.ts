@@ -157,6 +157,26 @@ export function useScrollToRoute(route: Route): void {
         return;
       }
     }
+
+    /**
+     * A table-of-contents link changes only the hash, so the route changes too
+     * even though the post has not. Let the browser's anchor scroll stand: a
+     * scroll back to the top here would undo the jump just made.
+     */
+    const hash = window.location.hash;
+    if (hash && !hash.startsWith('#/') && hash !== '#') {
+      const heading = document.getElementById(decodeURIComponent(hash.slice(1)));
+      if (heading) {
+        heading.scrollIntoView({
+          behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+            ? 'auto'
+            : 'smooth',
+          block: 'start',
+        });
+        return;
+      }
+    }
+
     window.scrollTo({ top: 0, behavior: 'auto' });
   }, [route]);
 }

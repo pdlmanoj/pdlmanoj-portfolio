@@ -662,6 +662,34 @@ function readSiteUrl(): string {
 type RenderedCode = Tokens.Code & { html?: string };
 type RenderedImage = Tokens.Image & { html?: string };
 
+/** One heading in a post's table of contents, with the id written into its HTML. */
+interface TocEntry {
+  id: string;
+  text: string;
+  level: number;
+}
+
+/** The visible words of a heading, without the inline markdown around them. */
+function headingLabel(token: Tokens.Heading): string {
+  return token.text
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[*_`~]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Stable anchor for a heading, numbered when two headings share the same words. */
+function headingId(label: string, used: Map<string, number>): string {
+  const base =
+    label
+      .toLowerCase()
+      .match(/[\p{L}\p{N}]+/gu)
+      ?.join('-') || 'section';
+  const count = used.get(base) ?? 0;
+  used.set(base, count + 1);
+  return count === 0 ? base : `${base}-${count + 1}`;
+}
+
 function imageTag(src: string, token: Tokens.Image): string {
   return `<img src="${escapeAttribute(src)}" alt="${escapeAttribute(token.text)}"${
     token.title ? ` title="${escapeAttribute(token.title)}"` : ''
@@ -708,12 +736,12 @@ export function markdownBlog(): Plugin {
    * Every post's rendered html, keyed by slug, as `transform` produced it, plus
    * the Rollup reference each `__ASSET_n__` placeholder is waiting on.
    */
-  const rendered = new Map<string, { html: string; assets: string[] }>();
+  const rendered = new Map<string, { html: string; assets: string[]; toc: TocEntry[] }>();
   /**
    * The same html with real asset URLs, filled in by `generateBundle` and read by
    * `closeBundle`, which is the first hook that runs with `dist/` on disk.
    */
-  const prerendered = new Map<string, string>();
+  const prerendered = new Map<string, { html: string; toc: TocEntry[] }>();
 
   return {
     name: 'markdown-blog',
@@ -876,8 +904,28 @@ export function markdownBlog(): Plugin {
       const renderer = new Renderer();
       const fallbackCode = renderer.code.bind(renderer);
       const fallbackImage = renderer.image.bind(renderer);
+      const fallbackHeading = renderer.heading.bind(renderer);
+      const toc: TocEntry[] = [];
+      const usedHeadingIds = new Map<string, number>();
+
       renderer.code = (token) => (token as RenderedCode).html ?? fallbackCode(token);
       renderer.image = (token) => (token as RenderedImage).html ?? fallbackImage(token);
+      /**
+       * Marked renders the HTML string the app injects as it is, so there is no
+       * React heading component to attach an anchor to later. The id goes in here,
+       * and the same pass collects the entries for the table of contents.
+       */
+      renderer.heading = (token) => {
+        const label = headingLabel(token);
+        const id = headingId(label, usedHeadingIds);
+        if (token.depth === 2 || token.depth === 3) {
+          toc.push({ id, text: label, level: token.depth });
+        }
+        return fallbackHeading(token).replace(
+          /^<h[1-6](?: [^>]*)?>/,
+          `<h${token.depth} id="${escapeAttribute(id)}">`,
+        );
+      };
 
       let html = marked.parser(tokens, { ...marked.defaults, renderer });
 
@@ -910,7 +958,7 @@ export function markdownBlog(): Plugin {
        * runtime from `import.meta.ROLLUP_FILE_URL_*`; the prerendered copy needs
        * real URLs, which only exist once Rollup has named the assets.
        */
-      rendered.set(slug, { html, assets });
+      rendered.set(slug, { html, assets, toc });
 
       const assetImports = assets
         .map((reference, slot) => `assets[${slot}] = import.meta.ROLLUP_FILE_URL_${reference};`)
@@ -924,10 +972,11 @@ export function markdownBlog(): Plugin {
         code: [
           `const frontmatter = ${JSON.stringify(frontmatter)};`,
           `let html = ${JSON.stringify(html)};`,
+          `const toc = ${JSON.stringify(toc)};`,
           substitutions,
           `export const slug = ${JSON.stringify(slug)};`,
-          `export { frontmatter, html };`,
-          `export default { slug, frontmatter, html };`,
+          `export { frontmatter, html, toc };`,
+          `export default { slug, frontmatter, html, toc };`,
         ]
           .filter(Boolean)
           .join('\n'),
@@ -944,7 +993,10 @@ export function markdownBlog(): Plugin {
     generateBundle() {
       const getFileName = this.getFileName.bind(this);
       for (const [slug, post] of rendered) {
-        prerendered.set(slug, resolveAssetPlaceholders(post.html, post.assets, getFileName));
+        prerendered.set(slug, {
+          html: resolveAssetPlaceholders(post.html, post.assets, getFileName),
+          toc: post.toc,
+        });
       }
     },
 
@@ -966,15 +1018,16 @@ export function markdownBlog(): Plugin {
          * silently be the "needs JavaScript" stub — the exact failure this
          * prerender exists to remove.
          */
-        const html = prerendered.get(summary.slug);
-        if (!html) {
+        const built = prerendered.get(summary.slug);
+        if (!built) {
           throw new Error(
             `[blog] ${summary.slug}/${POST_ENTRY} was not transformed, so it has no html.`,
           );
         }
         return {
           ...summary,
-          html,
+          html: built.html,
+          toc: built.toc,
           image: preview?.url,
           imageSource: preview?.source,
           thumbnail: thumbnail?.url,

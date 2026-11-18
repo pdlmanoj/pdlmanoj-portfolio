@@ -50,6 +50,9 @@ src/lib/seo.ts         runtime meta/canonical/OG updates, and the copy for the
 src/hooks/useHashRoute.ts  router: home hashes, /blog/, /blog/<slug>/,
                        /projects/, /experience/, legacy hashes
 src/components/blog/PostComments.tsx  lazy giscus widget at the foot of a post
+src/components/blog/PostToc.tsx  reading map: build-time heading links, active
+                        section follows scroll, sticky right rail from xl,
+                        inline above the body on smaller screens
 src/components/layout/PageHeader.tsx  back link + h1 + intro, shared by the
                        three pages that are not the homepage
 src/components/layout/SectionHeader.tsx  heading + intro for a block inside the
@@ -115,6 +118,11 @@ they are in bookmarks and in the search index, and a 404 would break the promise
   homepage can render while the address bar still holds a post path (click a
   section link from a post), and a document-relative `./profile.jpeg` would 404
   from there and stay broken.
+- A post's reading map uses ordinary `#heading` hashes, not router hashes. A click
+  changes the hash, which still produces a new `Route`, so `useScrollToRoute` has
+  to leave an in-page target alone instead of scrolling back to the top. The same
+  link followed from outside lands before the post's lazy chunk has rendered its
+  headings, so `PostToc` repeats the scroll once its items arrive.
 
 ## Content model
 
@@ -125,7 +133,11 @@ they are in bookmarks and in the search index, and a 404 would break the promise
   folder's `index.md`, because a stray file is never imported and would
   otherwise be a post that silently never appears. There is no `description:`
   field: the summary is derived by the build from the post's first paragraph,
-  so it cannot be left stale.
+  so it cannot be left stale. There is no TOC field either: the build writes an
+  `id` into every heading and collects `##`/`###` into a `toc` exported alongside
+  the rendered HTML. `###` entries are nested under the `##` before them in the
+  reading map; duplicate heading words get numbered ids, so a post can repeat a
+  section name without a broken link.
 - **A draft** is `published: false`. It gets no listing entry, no page, no
   sitemap row and no share card, and the built app refuses to serve one, so its
   URL is a 404 — which is what makes a post writable on the live repo: commit
@@ -250,6 +262,11 @@ category ids must also match the public GitHub discussion category.
   `site.url`
 - `404.html`, root-absolute assets, `noindex`
 
+A post's no-JS copy includes the same reading map the app builds from `toc`, with
+links to the ids written into its headings. The ids are added in `build/markdown.ts`
+because the body is an HTML string, not React nodes: crawlers and no-JS readers
+get working anchors, and the app never has to scan the DOM to find them.
+
 Every one of those is written from `publishedSummaries()`, which is the list of
 published posts only: a draft produces no directory, no sitemap entry and no card,
 so the writers above need no draft check of their own.
@@ -296,7 +313,8 @@ Keep the PNG. Twitter, Slack and WhatsApp ignore SVG cards.
 
 Already handled, and worth keeping:
 
-- one `<h1>` per page, real `<time dateTime>` on every date
+- one `<h1>` per page, real `<time dateTime>` on every date; anchored headings get
+  `scroll-margin-top` so the sticky navbar never covers a jumped-to section
 - static per-post and per-listing metadata and canonical URLs; an `og:image` only
   on the posts whose frontmatter names one, and no width/height claims, because
   the card is the author's file and its size is not known at build time

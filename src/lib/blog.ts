@@ -86,10 +86,18 @@ export interface BlogFrontmatter {
   summary?: string;
 }
 
+/** One heading in a post, with the id the build wrote into the rendered HTML. */
+export interface TocEntry {
+  id: string;
+  text: string;
+  level: number;
+}
+
 /** What one markdown file compiles to. */
 export interface BlogPost extends BlogPostSummary {
   frontmatter: BlogFrontmatter;
   html: string;
+  toc: TocEntry[];
 }
 
 /** Every post, newest first. */
@@ -97,7 +105,7 @@ export const posts: BlogPostSummary[] = summaries;
 
 /** Lazy loaders, one chunk per post, so the homepage never ships post HTML. */
 const modules = import.meta.glob<{
-  default: { slug: string; frontmatter: BlogFrontmatter; html: string };
+  default: { slug: string; frontmatter: BlogFrontmatter; html: string; toc: TocEntry[] };
 }>('../content/blog/*/index.md');
 
 /**
@@ -112,7 +120,7 @@ export async function loadPost(slug: string): Promise<BlogPost | undefined> {
   const loader = modules[`../content/blog/${slug}/index.md`];
   if (!loader) return undefined;
 
-  const { slug: postSlug, frontmatter, html } = (await loader()).default;
+  const { slug: postSlug, frontmatter, html, toc } = (await loader()).default;
   if (!frontmatter.published && !import.meta.env.DEV) return undefined;
 
   const summary = posts.find((post) => post.slug === postSlug);
@@ -128,6 +136,7 @@ export async function loadPost(slug: string): Promise<BlogPost | undefined> {
     thumbnail: summary?.thumbnail,
     frontmatter,
     html,
+    toc,
   };
 }
 
