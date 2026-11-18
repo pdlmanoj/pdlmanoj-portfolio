@@ -7,6 +7,7 @@ import type { Plugin } from 'vite';
 import {
   writePostPages,
   writePreviewImages,
+  writeThumbnails,
   writeRobots,
   writeSitemap,
   writeCname,
@@ -296,6 +297,12 @@ interface PostSummary {
   tags: string[];
   summary?: string;
   readingTime: number;
+  /**
+   * The post's first body image, used as its thumbnail on the archive. For a local
+   * image this is the fixed file name it is copied to beside the post page; a
+   * remote image or a file served by the dev server carries its own full URL.
+   */
+  thumbnail?: string;
 }
 
 /**
@@ -307,11 +314,12 @@ interface PostSummary {
  * index wants posts that are published, and the filter wants to know which are
  * not.
  */
-function readSummary(slug: string): { summary: PostSummary; published: boolean } {
+function readSummary(slug: string, isServe: boolean): { summary: PostSummary; published: boolean } {
   const fullPath = postPath(slug);
   const { data, content } = matter(fs.readFileSync(fullPath, 'utf8'));
   const published = parsePublished(slug, data.published);
   const date = data.date instanceof Date ? data.date.toISOString().slice(0, 10) : data.date;
+  const thumbnail = resolveThumbnail(content, path.dirname(fullPath), isServe);
 
   const words = content
     .replace(/```[\s\S]*?```/g, ' ')
@@ -329,6 +337,7 @@ function readSummary(slug: string): { summary: PostSummary; published: boolean }
       tags: parseTags(data.tags, slug),
       summary: deriveSummary(content),
       readingTime: Math.max(1, Math.round(words / WORDS_PER_MINUTE)),
+      thumbnail: thumbnail?.url,
     },
   };
 }
@@ -344,9 +353,9 @@ function readSummary(slug: string): { summary: PostSummary; published: boolean }
  * from. The dev server filters drafts out of the index too, so the list it shows
  * is the list the deployed site will show.
  */
-function publishedSummaries(): PostSummary[] {
+function publishedSummaries(isServe: boolean): PostSummary[] {
   const summaries = postSlugs()
-    .map(readSummary)
+    .map((slug) => readSummary(slug, isServe))
     .filter((read) => read.published)
     .map((read) => read.summary);
 
@@ -492,6 +501,69 @@ function resolvePreview(slug: string, value: unknown, postDir: string): PreviewI
 function postPreview(slug: string): PreviewImage | undefined {
   const { data } = matter(fs.readFileSync(postPath(slug), 'utf8'));
   return resolvePreview(slug, data.image, path.dirname(postPath(slug)));
+}
+
+/**
+ * The first picture in a post's body, used as its archive thumbnail.
+ *
+ * Taken from the body rather than the frontmatter `image`, so a post illustrates
+ * itself with its own content without the author naming a second picture. The
+ * markdown is walked with the same parser the renderer uses, so an image inside
+ * a code fence cannot be mistaken for one.
+ */
+interface ThumbnailImage {
+  /**
+   * A local image is copied to a fixed name beside the post page, so this is just
+   * that file name. A remote image keeps the URL it was written with, and in dev
+   * this is the `/@fs` URL Vite serves the source file from.
+   */
+  url: string;
+  /** Absolute path of a local file to copy into the build. */
+  source?: string;
+}
+
+function firstImageToken(content: string): Tokens.Image | undefined {
+  const marked = new Marked({ gfm: true });
+  const found: Tokens.Image[] = [];
+  marked.walkTokens(marked.lexer(content), (token) => {
+    if (found.length === 0 && token.type === 'image') found.push(token as Tokens.Image);
+  });
+  return found.at(0);
+}
+
+/**
+ * A post with no image, or one whose first image is not a local file, has no
+ * thumbnail: an empty slot is better than a broken `src`. Remote images are
+ * still used as written, since their URL needs no build step.
+ */
+function resolveThumbnail(
+  content: string,
+  postDir: string,
+  isServe: boolean,
+): ThumbnailImage | undefined {
+  const image = firstImageToken(content);
+  if (!image) return undefined;
+
+  const href = image.href.trim();
+  if (/^(https?:)?\/\//.test(href)) return { url: href };
+  if (href.startsWith('/')) return undefined;
+
+  const source = path.resolve(postDir, href);
+  const extension = path.extname(source).toLowerCase();
+  if (!extension || !fs.existsSync(source)) return undefined;
+
+  if (isServe) {
+    // Dev has no dist/ to copy into, so point at the file Vite already serves.
+    return { url: `/@fs${source}` };
+  }
+  return { url: `thumb${extension}`, source };
+}
+
+/** The first body image of one post, read from disk for the static writer. */
+function postThumbnail(slug: string, isServe: boolean): ThumbnailImage | undefined {
+  const fullPath = postPath(slug);
+  const { content } = matter(fs.readFileSync(fullPath, 'utf8'));
+  return resolveThumbnail(content, path.dirname(fullPath), isServe);
 }
 
 /**
@@ -719,7 +791,7 @@ export function markdownBlog(): Plugin {
     load(id) {
       if (id !== RESOLVED_INDEX) return null;
 
-      return `export const posts = ${JSON.stringify(publishedSummaries(), null, 2)};\n`;
+      return `export const posts = ${JSON.stringify(publishedSummaries(isServe), null, 2)};\n`;
     },
 
     async transform(code, id) {
@@ -885,8 +957,9 @@ export function markdownBlog(): Plugin {
       if (isServe) return;
 
       const siteUrl = readSiteUrl();
-      const posts = publishedSummaries().map((summary) => {
+      const posts = publishedSummaries(isServe).map((summary) => {
         const preview = postPreview(summary.slug);
+        const thumbnail = postThumbnail(summary.slug, isServe);
         /**
          * Fail rather than ship a thin page. A post whose html is missing here
          * means its module was never transformed, so the crawler copy would
@@ -899,7 +972,14 @@ export function markdownBlog(): Plugin {
             `[blog] ${summary.slug}/${POST_ENTRY} was not transformed, so it has no html.`,
           );
         }
-        return { ...summary, html, image: preview?.url, imageSource: preview?.source };
+        return {
+          ...summary,
+          html,
+          image: preview?.url,
+          imageSource: preview?.source,
+          thumbnail: thumbnail?.url,
+          thumbnailSource: thumbnail?.source,
+        };
       });
 
       const options = {
@@ -915,6 +995,7 @@ export function markdownBlog(): Plugin {
        * writes the post directories, and the card goes into one of those.
        */
       writePreviewImages(options);
+      writeThumbnails(options);
       writeSitemap(options);
       writeRobots(options);
       /**

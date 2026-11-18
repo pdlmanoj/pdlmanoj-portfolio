@@ -29,6 +29,12 @@ export interface BlogPostSummary {
   /** The post's opening paragraph, as a description length. See `BlogFrontmatter`. */
   summary?: string;
   readingTime: number;
+  /**
+   * The post's first body image, used on the archive. A local image is stored as
+   * the file name copied beside the post page; a full URL means a remote image or
+   * a file the dev server serves from source. Absent when the post has no image.
+   */
+  thumbnail?: string;
 }
 
 export interface BlogFrontmatter {
@@ -119,6 +125,7 @@ export async function loadPost(slug: string): Promise<BlogPost | undefined> {
     tags: frontmatter.tags,
     summary: frontmatter.summary,
     readingTime: summary?.readingTime ?? 1,
+    thumbnail: summary?.thumbnail,
     frontmatter,
     html,
   };

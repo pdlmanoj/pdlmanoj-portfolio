@@ -35,5 +35,7 @@ declare module 'virtual:blog-index' {
     tags: string[];
     summary?: string;
     readingTime: number;
+    /** First body image: a copied file name, or a full URL for remote/dev images. */
+    thumbnail?: string;
   }[];
 }

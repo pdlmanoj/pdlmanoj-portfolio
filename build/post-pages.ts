@@ -43,6 +43,13 @@ interface PostPageData {
   /** Absolute path of the file `image` names, copied into the build. */
   imageSource?: string;
   /**
+   * The post's first body image, as the file name to append to a post link.
+   * Remote images carry their own full URL instead; absent means no thumbnail.
+   */
+  thumbnail?: string;
+  /** Absolute path of the file `thumbnail` names, copied into the build. */
+  thumbnailSource?: string;
+  /**
    * The post's rendered body, with every asset URL already resolved. Written into
    * the page inside `<noscript>`, which is what makes the article readable to a
    * crawler that does not run JavaScript and to a reader who has it turned off.
@@ -289,6 +296,23 @@ export function writePreviewImages({ outDir, posts }: PostPagesOptions): void {
 }
 
 /**
+ * Copies each post's first body image into the build as
+ * `dist/blog/<slug>/thumb.<ext>`, beside the page it belongs to.
+ *
+ * The two rules from `writePreviewImages` apply for the same reasons: it runs
+ * after `writePostPages` has cleared `dist/blog`, and the name is fixed so the
+ * URL in the archive stays the same across deploys. A remote image has no source
+ * file here — its URL is used as written, by both the app and the no-JS list.
+ */
+export function writeThumbnails({ outDir, posts }: PostPagesOptions): void {
+  for (const post of posts) {
+    if (!post.thumbnail || !post.thumbnailSource) continue;
+    const target = path.join(outDir, 'blog', post.slug, post.thumbnail);
+    fs.copyFileSync(post.thumbnailSource, target);
+  }
+}
+
+/**
  * Writes `sitemap.xml` with the homepage, the blog archive, each data-driven
  * listing page and one entry per post.
  *
@@ -522,6 +546,18 @@ function listingFallback(page: ListingPageData & { title: string }): (string | f
   ];
 }
 
+/** The archive row's image, resolved the same way the app resolves it. */
+function fallbackThumbnail(post: PostPageData): string {
+  const thumbnail = post.thumbnail;
+  if (!thumbnail) return '';
+
+  const src =
+    thumbnail.startsWith('/') || /^https?:/.test(thumbnail)
+      ? thumbnail
+      : `${post.slug}/${thumbnail}`;
+  return `<img src="${escapeHtml(src)}" alt="" loading="lazy" decoding="async" />`;
+}
+
 /** The list a no-JS reader sees on the blog archive, with working links. */
 function blogFallback(posts: PostPageData[]): (string | false)[] {
   if (posts.length === 0) return ['<h1>Blog</h1>', NO_JS_NOTE];
@@ -532,7 +568,7 @@ function blogFallback(posts: PostPageData[]): (string | false)[] {
         ? ` <small>${post.tags.map(escapeHtml).join(', ')}</small>`
         : '';
       return (
-        `        <li><a href="${post.slug}/">${escapeHtml(post.title)}</a>` +
+        `        <li>${fallbackThumbnail(post)}<a href="${post.slug}/">${escapeHtml(post.title)}</a>` +
         `${post.date ? ` <small>${escapeHtml(post.date)}</small>` : ''}${tags}</li>`
       );
     })
