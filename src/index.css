@@ -227,6 +227,16 @@
     margin-top: 0.75em;
   }
 
+  /* An anchored heading has to clear the sticky navbar before it lands. */
+  .prose :is(h1, h2, h3, h4, h5, h6)[id] {
+    scroll-margin-top: 6rem;
+  }
+
+  /* The no-JS table of contents is plain markup; indent its subheadings. */
+  .toc-fallback .nested {
+    margin-left: 1.25rem;
+  }
+
   .prose p {
     text-wrap: pretty;
   }

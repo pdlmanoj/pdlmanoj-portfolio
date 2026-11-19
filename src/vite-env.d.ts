@@ -2,8 +2,8 @@
 
 /**
  * Types for the markdown pipeline in `build/markdown.ts`. Each `.md` file in
- * `src/content/blog/` becomes a module with its frontmatter and rendered HTML —
- * both produced at build time, so nothing is parsed in the browser.
+ * `src/content/blog/` becomes a module with its frontmatter, rendered HTML and
+ * heading list — all produced at build time, so nothing is parsed in the browser.
  *
  * The shapes here are the contract with `build/markdown.ts`: the plugin writes
  * exactly these fields, and `src/lib/blog.ts` re-exports them as `BlogFrontmatter`
@@ -22,6 +22,7 @@ declare module '*.md' {
       published: boolean;
     };
     html: string;
+    toc: { id: string; text: string; level: number }[];
   };
   export default post;
 }

@@ -5,6 +5,7 @@ import { profile } from '../data/profile';
 import { assetUrl } from '../lib/assets';
 import { PostComments } from '../components/blog/PostComments';
 import { PostTags } from '../components/blog/PostTags';
+import { PostToc } from '../components/blog/PostToc';
 import {
   blogHref,
   formatDate,
@@ -91,68 +92,87 @@ export function BlogPostPage({ slug }: { slug: string }) {
   const related = relatedPosts(post.slug);
 
   return (
-    <article className="left-gutter mx-auto w-full max-w-3xl px-5 pt-12 pb-24 sm:px-8 sm:pt-16">
-      <a
-        href={blogHref('post')}
-        className="group inline-flex items-center gap-2 font-mono text-sm text-muted transition-colors hover:text-accent"
-      >
-        <ArrowLeft
-          className="h-4 w-4 transition-transform duration-150 group-hover:-translate-x-0.5 motion-reduce:transition-none"
-          aria-hidden="true"
-        />
-        All posts
-      </a>
+    <div className="mx-auto w-full max-w-6xl px-5 sm:px-8">
+      <div className="flex justify-center gap-12">
+        <article className="left-gutter w-full min-w-0 max-w-3xl px-5 pt-12 pb-24 sm:px-8 sm:pt-16">
+          <a
+            href={blogHref('post')}
+            className="group inline-flex items-center gap-2 font-mono text-sm text-muted transition-colors hover:text-accent"
+          >
+            <ArrowLeft
+              className="h-4 w-4 transition-transform duration-150 group-hover:-translate-x-0.5 motion-reduce:transition-none"
+              aria-hidden="true"
+            />
+            All posts
+          </a>
 
-      <header className="mt-8">
-        {/**
-         * The date is not here any more: the byline below states it as
-         * "Published", and printing the same date twice on one screen reads as a
-         * mistake rather than as metadata.
-         */}
-        <p className="label-mono text-muted">{post.readingTime} min read</p>
-        <h1 className="mt-4 text-3xl font-medium tracking-tight text-balance sm:text-4xl">
-          {post.frontmatter.title}
-        </h1>
-        {post.frontmatter.tags.length > 0 ? (
-          <div className="mt-5">
-            <PostTags tags={post.frontmatter.tags} />
+          <header className="mt-8">
+            {/**
+             * The date is not here any more: the byline below states it as
+             * "Published", and printing the same date twice on one screen reads as a
+             * mistake rather than as metadata.
+             */}
+            <p className="label-mono text-muted">{post.readingTime} min read</p>
+            <h1 className="mt-4 text-3xl font-medium tracking-tight text-balance sm:text-4xl">
+              {post.frontmatter.title}
+            </h1>
+            {post.frontmatter.tags.length > 0 ? (
+              <div className="mt-5">
+                <PostTags tags={post.frontmatter.tags} />
+              </div>
+            ) : null}
+          </header>
+
+          <PostByline post={post} />
+
+          <div className="mt-10 xl:hidden">
+            <PostToc items={post.toc} />
           </div>
-        ) : null}
-      </header>
 
-      <PostByline post={post} />
+          {/*
+            Copy button: one delegated listener instead of a React component per
+            code block, because the blocks arrive as HTML.
+          */}
+          <div
+            className="prose mt-10"
+            onClick={(event) => {
+              const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+                '[data-copy-code]',
+              );
+              if (!button) return;
 
-      {/*
-        Copy button: one delegated listener instead of a React component per
-        code block, because the blocks arrive as HTML.
-      */}
-      <div
-        className="prose mt-10"
-        onClick={(event) => {
-          const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
-            '[data-copy-code]',
-          );
-          if (!button) return;
+              const code = button.closest('.code-block')?.querySelector('code')?.textContent ?? '';
+              void copyText(code).then((copied) => {
+                if (!copied) return;
+                button.textContent = 'Copied';
+                window.setTimeout(() => {
+                  button.textContent = 'Copy';
+                }, 1600);
+              });
+            }}
+            dangerouslySetInnerHTML={{ __html: post.html }}
+          />
 
-          const code = button.closest('.code-block')?.querySelector('code')?.textContent ?? '';
-          void copyText(code).then((copied) => {
-            if (!copied) return;
-            button.textContent = 'Copied';
-            window.setTimeout(() => {
-              button.textContent = 'Copy';
-            }, 1600);
-          });
-        }}
-        dangerouslySetInnerHTML={{ __html: post.html }}
-      />
+          <RelatedPosts posts={related} />
 
-      <RelatedPosts posts={related} />
+          <PostLink post={older} direction="older" />
+          <PostLink post={newer} direction="newer" />
 
-      <PostLink post={older} direction="older" />
-      <PostLink post={newer} direction="newer" />
+          <PostComments />
+        </article>
 
-      <PostComments />
-    </article>
+        {/*
+          The reading map sits beside the article and stays put while it scrolls.
+          It is stretched by the flex row, so the sticky inner div has the whole
+          post to travel through before it reaches the end.
+        */}
+        <aside className="hidden w-56 shrink-0 pt-12 sm:pt-16 xl:block">
+          <div className="sticky top-24">
+            <PostToc items={post.toc} />
+          </div>
+        </aside>
+      </div>
+    </div>
   );
 }
 

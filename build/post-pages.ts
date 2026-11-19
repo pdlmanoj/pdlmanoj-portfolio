@@ -19,6 +19,13 @@ import path from 'node:path';
  * ---------------------------------------------------------------------------
  */
 
+/** One entry of the table of contents, collected while the post was rendered. */
+interface TocEntry {
+  id: string;
+  text: string;
+  level: number;
+}
+
 interface PostPageData {
   slug: string;
   title: string;
@@ -55,6 +62,8 @@ interface PostPageData {
    * crawler that does not run JavaScript and to a reader who has it turned off.
    */
   html: string;
+  /** Headings to link from the table of contents, with the ids written into `html`. */
+  toc: TocEntry[];
 }
 
 interface PostPagesOptions {
@@ -162,6 +171,7 @@ export function writePostPages({
         `<h1>${escapeHtml(post.title)}</h1>`,
         `<p><small>Published ${escapeHtml(post.date ?? '')}</small></p>`,
         post.updated ? `<p><small>Modified ${escapeHtml(post.updated)}</small></p>` : '',
+        tocFallback(post.toc),
         /**
          * The whole article, and the reason this page is worth having at all: the
          * app's own markup only exists once JavaScript runs, so without this the
@@ -646,6 +656,21 @@ function relatedTo(post: PostPageData, posts: PostPageData[], limit = 3): PostPa
       .slice(0, limit)
       .map((entry) => entry.post)
   );
+}
+
+/** The same reading map the app shows, for readers who never run JavaScript. */
+function tocFallback(toc: TocEntry[]): string {
+  if (toc.length < 2) return '';
+
+  const items = toc
+    .map(
+      (entry) =>
+        `          <li${entry.level === 3 ? ' class="nested"' : ''}>` +
+        `<a href="#${escapeHtml(entry.id)}">${escapeHtml(entry.text)}</a></li>`,
+    )
+    .join('\n');
+
+  return `<nav class="toc-fallback" aria-label="On this page">\n          <p><small>On this page</small></p>\n          <ol>\n${items}\n          </ol>\n        </nav>`;
 }
 
 /** The related-post links a no-JS reader and a crawler both get. */
